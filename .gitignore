@@ -24,3 +24,28 @@ scratchpad/
 # Compiled binaries
 tools/mac_hfp_ag
 tools/HfpAG.app/
+
+# ---- secrets (added automatically; do not remove) ----
+.env
+.env.*
+!.env.example
+!.env.sample
+*.pem
+*.p12
+*.pfx
+*.jks
+*.keystore
+credentials.json
+client_secret*.json
+*service_account*.json
+token.json
+tokens.json
+token.pickle
+secrets.yaml
+secrets.yml
+secrets.local.md
+.npmrc
+.pypirc
+id_rsa*
+id_ed25519*
+secrets/
