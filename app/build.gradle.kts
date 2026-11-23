@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
@@ -22,7 +24,7 @@ android {
     //   environment:         RELEASE_STORE_FILE, RELEASE_STORE_PASSWORD,
     //                        RELEASE_KEY_ALIAS, RELEASE_KEY_PASSWORD
     // When neither is present the release build is left unsigned and a warning says so.
-    val keystoreProps = java.util.Properties().apply {
+    val keystoreProps = Properties().apply {
         val f = rootProject.file("keystore.properties")
         if (f.exists()) f.inputStream().use { load(it) }
     }
