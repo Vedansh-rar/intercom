@@ -73,6 +73,7 @@ fun StartScreen(
     onEnableBluetooth: () -> Unit,
     onOpenBluetoothSettings: () -> Unit,
     onRenameRider: (String) -> Unit,
+    onRideCodeChange: (String) -> Unit,
     onHost: () -> Unit,
     onJoin: (BluetoothDevice) -> Unit,
     onSettings: () -> Unit,
@@ -84,7 +85,7 @@ fun StartScreen(
         StartScreenContent(
             settings, permissionsGranted, bluetoothOn, bondedDevices, nearbyHosts,
             onRequestPermissions, onEnableBluetooth, onOpenBluetoothSettings,
-            onRenameRider, onHost, onJoin, onSettings, onOem,
+            onRenameRider, onRideCodeChange, onHost, onJoin, onSettings, onOem,
             hostMode = hostModeState,
             onHostMode = { hostModeState = it },
         )
@@ -103,6 +104,7 @@ private fun StartScreenContent(
     onEnableBluetooth: () -> Unit,
     onOpenBluetoothSettings: () -> Unit,
     onRenameRider: (String) -> Unit,
+    onRideCodeChange: (String) -> Unit,
     onHost: () -> Unit,
     onJoin: (BluetoothDevice) -> Unit,
     onSettings: () -> Unit,
@@ -122,7 +124,9 @@ private fun StartScreenContent(
     val ready = permissionsGranted && bluetoothOn
     val musicIcon = ImageVector.vectorResource(R.drawable.ic_music_note)
     val audioIcon = ImageVector.vectorResource(R.drawable.ic_volume_up)
-    val canGo = ready && (hostMode || selected != null)
+    // Both phones must share a ride code, unless the rider has chosen to allow unprotected calls.
+    val hasCode = settings.rideCode.isNotBlank() || settings.allowLegacyBuddy
+    val canGo = ready && hasCode && (hostMode || selected != null)
 
     Column(
         Modifier
@@ -244,6 +248,7 @@ private fun StartScreenContent(
                 "Permissions needed", "Microphone, Bluetooth and notifications", Brand.Danger,
             )
             !bluetoothOn -> Triple("Bluetooth is off", "Turn it on to reach the other phone", Brand.Danger)
+            !hasCode -> Triple("Set a ride code", "Both phones need the same code", Brand.Buddy)
             hostMode -> Triple("Ready to host", "Your buddy joins from their phone", Brand.Talking)
             selected != null -> Triple(
                 "Ready to join",
@@ -433,6 +438,12 @@ private fun StartScreenContent(
                     modifier = Modifier.fillMaxWidth(),
                 )
             }
+        }
+
+        // ---- the ride code ------------------------------------------------------
+        Spacer(Modifier.height(14.dp))
+        Box(Modifier.padding(horizontal = 16.dp)) {
+            RideCodeCard(code = settings.rideCode, onChange = onRideCodeChange)
         }
 
         // ---- what the three subsystems will do -----------------------------------

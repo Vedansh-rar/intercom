@@ -63,6 +63,7 @@ fun AppRoot(
                     onEnableBluetooth = onEnableBluetooth,
                     onOpenBluetoothSettings = onOpenBluetoothSettings,
                     onRenameRider = { name -> prefs.update { it.copy(riderName = name) } },
+                    onRideCodeChange = { code -> prefs.update { it.copy(rideCode = code) } },
                     onHost = { onStartCall(LinkRole.Host, null) },
                     onJoin = { device -> onStartCall(LinkRole.Client, device) },
                     onSettings = { onScreen(Screen.Settings) },

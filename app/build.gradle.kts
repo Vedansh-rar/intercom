@@ -124,6 +124,11 @@ dependencies {
     implementation(libs.androidx.media)
     implementation(libs.androidx.datastore.preferences)
     implementation(libs.oboe)
+    // Draws the ride-code QR on the host's own screen. Pure Java, no network.
+    implementation(libs.zxing.core)
+    // Scans it on the joiner's phone. Google Play services runs the camera UI, so the app
+    // itself needs no camera permission; where Play services is missing the rider types the code.
+    implementation(libs.play.services.code.scanner)
     debugImplementation(libs.androidx.ui.tooling)
     testImplementation("junit:junit:4.13.2")
 }

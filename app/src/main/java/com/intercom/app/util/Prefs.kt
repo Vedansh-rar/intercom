@@ -43,6 +43,17 @@ data class Settings(
      * OEM. No row in Settings; long-press the Settings title to flip it.
      */
     val legacyAudioPath: Boolean = false,
+    /**
+     * The shared ride passphrase, in [com.intercom.app.security.RideCode.canonical] form, or
+     * empty when none is set. Kept in a separate preferences file that is excluded from
+     * backup (see [Prefs]).
+     */
+    val rideCode: String = "",
+    /**
+     * Talk to a buddy whose app cannot encrypt, unprotected. Off by default; when on, the
+     * call screen shows a warning for as long as the call is open.
+     */
+    val allowLegacyBuddy: Boolean = false,
 )
 
 /** Thin SharedPreferences wrapper that publishes the whole [Settings] as a flow. */
@@ -50,6 +61,15 @@ class Prefs(context: Context) {
 
     private val sp: SharedPreferences =
         context.getSharedPreferences("rider_intercom", Context.MODE_PRIVATE)
+
+    /**
+     * The ride code lives in its own file so it can be excluded from Android's cloud and
+     * device-transfer backup (res/xml/backup_rules.xml, data_extraction_rules.xml). A secret
+     * that follows the account to a new phone, or sits in a Google Drive backup, is not a
+     * secret shared only by the riders on the road.
+     */
+    private val secrets: SharedPreferences =
+        context.getSharedPreferences(SECRETS_FILE, Context.MODE_PRIVATE)
 
     private val _settings = MutableStateFlow(load())
     val settings: StateFlow<Settings> = _settings
@@ -70,6 +90,8 @@ class Prefs(context: Context) {
         takeAudioFocus = sp.getBoolean(K_FOCUS, true),
         headsetButtonEnabled = sp.getBoolean(K_BUTTON, true),
         legacyAudioPath = sp.getBoolean(K_LEGACY_AUDIO, false),
+        rideCode = secrets.getString(K_RIDE_CODE, "") ?: "",
+        allowLegacyBuddy = sp.getBoolean(K_ALLOW_LEGACY, false),
     )
 
     private inline fun <reified T : Enum<T>> enumOf(name: String?, fallback: T): T =
@@ -91,7 +113,9 @@ class Prefs(context: Context) {
             putBoolean(K_FOCUS, next.takeAudioFocus)
             putBoolean(K_BUTTON, next.headsetButtonEnabled)
             putBoolean(K_LEGACY_AUDIO, next.legacyAudioPath)
+            putBoolean(K_ALLOW_LEGACY, next.allowLegacyBuddy)
         }.apply()
+        secrets.edit().putString(K_RIDE_CODE, next.rideCode).apply()
         _settings.value = next
     }
 
@@ -115,5 +139,8 @@ class Prefs(context: Context) {
         const val K_BUTTON = "button"
         const val K_LEGACY_AUDIO = "legacy_audio"
         const val K_OEM_SHOWN = "oem_shown"
+        const val K_ALLOW_LEGACY = "allow_legacy_buddy"
+        const val K_RIDE_CODE = "ride_code"
+        const val SECRETS_FILE = "rider_intercom_secret"
     }
 }

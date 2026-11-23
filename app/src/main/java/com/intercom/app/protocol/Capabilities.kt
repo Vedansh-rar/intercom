@@ -19,10 +19,14 @@ object Capabilities {
     /**
      * What this build offers, given what this phone can actually run. A bit is only ever
      * set for a feature that is implemented *and* usable here: advertising a capability
-     * this build cannot honour would make the buddy rely on it. Position, auth and group
-     * join this as their phases land.
+     * this build cannot honour would make the buddy rely on it. Position and group join
+     * this as their phases land.
+     *
+     * [authAvailable] is true when a ride code is set: without one this phone cannot prove
+     * anything, so it must not claim [AUTH].
      */
-    fun local(opusAvailable: Boolean): Int = if (opusAvailable) OPUS else 0
+    fun local(opusAvailable: Boolean, authAvailable: Boolean = false): Int =
+        (if (opusAvailable) OPUS else 0) or (if (authAvailable) AUTH else 0)
 
     fun names(caps: Int): List<String> = buildList {
         if (caps and OPUS != 0) add("OPUS")

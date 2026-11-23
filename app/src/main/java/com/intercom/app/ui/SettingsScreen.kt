@@ -253,6 +253,23 @@ fun SettingsScreen(
             )
         }
 
+        SectionCard(title = "Ride security") {
+            Text(
+                "Calls are encrypted with your ride code. A buddy who has the wrong code, " +
+                    "or whose app cannot encrypt, is refused.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = IntercomColors.dim,
+            )
+            ToggleRow(
+                checked = settings.allowLegacyBuddy,
+                title = "Allow an unencrypted buddy",
+                subtitle = "Lets a buddy on an older version of this app connect without " +
+                    "encryption or a ride code check. Anyone nearby could then listen in, " +
+                    "and the call screen shows a warning for as long as it lasts.",
+                onChange = { v -> onChange { it.copy(allowLegacyBuddy = v) } },
+            )
+        }
+
         SectionCard(title = "Keeping the call alive") {
             SecondaryButton("Background and battery steps", onOem)
         }

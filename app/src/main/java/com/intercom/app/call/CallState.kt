@@ -1,6 +1,7 @@
 package com.intercom.app.call
 
 import com.intercom.app.floor.FloorState
+import com.intercom.app.security.ChannelSecurity
 import com.intercom.app.transport.LinkState
 
 /** The session state machine the service and the UI both read. */
@@ -30,6 +31,7 @@ data class CallStatus(
     val focusHeld: Boolean = false,
     val elapsedSeconds: Long = 0,
     val error: String? = null,
+    val security: ChannelSecurity = ChannelSecurity.Pending,
 ) {
     val isConnected: Boolean get() = phase == CallPhase.Active
     val canTalk: Boolean get() = isConnected && floor == FloorState.Talking

@@ -24,6 +24,8 @@ import com.intercom.app.floor.FloorState
 import com.intercom.app.floor.Vad
 import com.intercom.app.floor.VadEvent
 import com.intercom.app.media.FocusManager
+import com.intercom.app.protocol.AuthChallenge
+import com.intercom.app.protocol.AuthResponse
 import com.intercom.app.protocol.Codec
 import com.intercom.app.protocol.Capabilities
 import com.intercom.app.protocol.CodecId
@@ -31,6 +33,14 @@ import com.intercom.app.protocol.Hello
 import com.intercom.app.protocol.NegotiatedFeatures
 import com.intercom.app.protocol.Message
 import com.intercom.app.protocol.Protocol
+import com.intercom.app.security.AuthSession
+import com.intercom.app.security.ChannelSecurity
+import com.intercom.app.security.FrameGate
+import com.intercom.app.security.SecurityPolicy
+import com.intercom.app.security.AuthThrottle
+import com.intercom.app.security.FrameCipher
+import com.intercom.app.security.NonceCache
+import com.intercom.app.security.RideCode
 import com.intercom.app.transport.LinkRole
 import com.intercom.app.transport.LinkState
 import com.intercom.app.transport.PeerLink
@@ -43,6 +53,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.channels.BufferOverflow
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -77,6 +89,10 @@ class CallController(
         private const val STATS_TAG = "IntercomStats"
         /** 25 ticks at 200 ms: one stats line every 5 seconds. */
         private const val STATS_EVERY_TICKS = 25L
+
+        /** The challenge is re-sent until answered: the buddy may not have been ready for the first. */
+        private const val AUTH_RESEND_MS = 700L
+        private const val AUTH_TIMEOUT_MS = 15_000L
     }
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -175,6 +191,17 @@ class CallController(
         }
 
         val settings = prefs.current
+        terminal = false
+        rideCode = RideCode.parseOrNull(settings.rideCode)
+        allowLegacy = settings.allowLegacyBuddy
+        if (rideCode == null && !allowLegacy) {
+            fail("Set a ride code first")
+            return
+        }
+        if (throttle.isLocked) {
+            fail("Too many wrong ride codes. Try again in ${secondsLeft()} s")
+            return
+        }
         focus.takeFocus = settings.takeAudioFocus
         vad.sensitivity = settings.vadSensitivity
         applyVoiceLevel(settings.voiceLevelDb, settings.takeAudioFocus)
@@ -196,7 +223,7 @@ class CallController(
             codec = Hello.CODEC_ADPCM,
             sessionId = sessionId,
             riderName = settings.riderName,
-            capabilities = Capabilities.local(opusAvailable),
+            capabilities = localCaps(),
         )
 
         val arb = FloorArbiter(sessionId, floorActions)
@@ -287,24 +314,32 @@ class CallController(
                     arbiter?.reset()
                     vad.reset()
                     preroll.clear()
-                } else if (st == LinkState.Reconnecting) {
-                    jitter.reset()
-                    arbiter?.onLinkLost()
-                    focus.undock()
+                    // Every new socket is a new connection: new nonces, new keys.
+                    synchronized(securityLock) { connectionEpoch++ }
+                    evaluateSecurity()
+                } else {
+                    dropSecurity()
+                    if (st == LinkState.Reconnecting) {
+                        jitter.reset()
+                        arbiter?.onLinkLost()
+                        focus.undock()
+                    }
                 }
-                update { it.copy(phase = phase, link = st) }
+                // After a security failure the link is closed on purpose; keep saying why.
+                update { it.copy(phase = if (terminal) CallPhase.Error else phase, link = st) }
             }
         }
-        scope.launch { l.status.collect { s -> update { it.copy(statusText = s) } } }
+        scope.launch { l.status.collect { s -> if (!terminal) update { it.copy(statusText = s) } } }
         scope.launch { l.rttMillis.collect { r -> update { it.copy(rttMs = r) } } }
         scope.launch {
             l.peerHello.collect { h ->
                 update { it.copy(peerName = h?.riderName) }
                 if (h != null) {
-                    val f = NegotiatedFeatures.negotiate(Capabilities.local(opusAvailable), h)
+                    val f = NegotiatedFeatures.negotiate(localCaps(), h)
                     features = f
                     selectCodec(f)
                     Log.i(TAG, "buddy v${h.version}, features: $f, codec=${codec.id}")
+                    evaluateSecurity()
                 }
             }
         }
@@ -342,6 +377,8 @@ class CallController(
                             "dropSend=${selector?.droppedSends ?: 0} " +
                             "ns=${mic?.noiseSuppression} hwfx=${mic?.platformEffectsReport} " +
                             "focus=${focus.isHeld} ptt=${arb.pushToTalk} " +
+                            "sec=$security rejected=${cipher?.rejected ?: 0} " +
+                            "cleartextDropped=$cleartextDropped " +
                             "t=${(System.currentTimeMillis() - startedAtMs) / 1000}s",
                     )
                 }
@@ -399,7 +436,7 @@ class CallController(
         // burns CPU and fills the outbox: while merely waiting to be joined this pushed
         // dropSend past 1700 frames in 45 seconds and ducked the rider's music the whole
         // time.
-        if (l.state.value != LinkState.Connected) {
+        if (l.state.value != LinkState.Connected || !mediaAllowed()) {
             rememberForPreroll(frame)
             return
         }
@@ -445,14 +482,23 @@ class CallController(
         val n = c.encode(frame, txBuf)
         if (n <= 0) return
         val seq = audioSeq.getAndIncrement() and 0xFFFF
-        l.send(Codec.encode(Protocol.TYPE_AUDIO, seq, c.wireFlag, txBuf.copyOf(n)))
+        sendFrame(l, Protocol.TYPE_AUDIO, seq, c.wireFlag, txBuf.copyOf(n))
     }
 
     // ------------------------------------------------------------ receive path
 
     /** Called on the link's reader thread. */
-    private fun onMessage(m: Message) {
+    private fun onMessage(raw: Message) {
         val arb = arbiter ?: return
+
+        // The security handshake and END are always cleartext. Everything else goes through
+        // the gate: opened while encrypted, refused while the check is still pending.
+        if (raw.type == Protocol.TYPE_AUTH_CHALLENGE || raw.type == Protocol.TYPE_AUTH_RESPONSE) {
+            authInbox?.trySend(raw)
+            return
+        }
+        val m = if (raw.type == Protocol.TYPE_END) raw else (admit(raw) ?: return)
+
         when (m.type) {
             Protocol.TYPE_AUDIO -> {
                 // Any frame from the holder refreshes the watchdog that would otherwise
@@ -491,6 +537,17 @@ class CallController(
         }
     }
 
+    /**
+     * Runs a frame through [FrameGate]. Returns the message to act on, with the payload
+     * decrypted and the encryption bit cleared, or null if it must be dropped.
+     */
+    private fun admit(m: Message): Message? =
+        when (val r = FrameGate.admit(security, cipher, m)) {
+            is FrameGate.Result.Accept -> r.message
+            FrameGate.Result.WrongForm -> { cleartextDropped++; null }
+            FrameGate.Result.Invalid, FrameGate.Result.NotReady -> null
+        }
+
     // ------------------------------------------------------------ floor wiring
 
     private val floorActions = object : FloorActions {
@@ -498,37 +555,16 @@ class CallController(
             val body = ByteArray(16)
             putLong(body, 0, startedAtMicros)
             putLong(body, 8, sessionId)
-            link?.send(
-                Codec.encode(
-                    Protocol.TYPE_FLOOR_TAKEN,
-                    controlSeq.getAndIncrement() and 0xFFFF,
-                    0,
-                    body,
-                )
-            )
+            sendControl(Protocol.TYPE_FLOOR_TAKEN, body)
         }
 
         override fun sendFloorRelease() {
-            link?.send(
-                Codec.encode(
-                    Protocol.TYPE_FLOOR_RELEASE,
-                    controlSeq.getAndIncrement() and 0xFFFF,
-                    0,
-                    null,
-                )
-            )
+            sendControl(Protocol.TYPE_FLOOR_RELEASE, null)
             focus.undock()
         }
 
         override fun sendFloorDenied() {
-            link?.send(
-                Codec.encode(
-                    Protocol.TYPE_FLOOR_DENIED,
-                    controlSeq.getAndIncrement() and 0xFFFF,
-                    0,
-                    null,
-                )
-            )
+            sendControl(Protocol.TYPE_FLOOR_DENIED, null)
         }
 
         override fun beep() {
@@ -539,6 +575,219 @@ class CallController(
             update { it.copy(floor = state, muted = state == FloorState.Muted) }
             if (state == FloorState.Idle) focus.undock() else focus.duck()
         }
+    }
+
+    // ---------------------------------------------------------------- security
+    //
+    // Authentication and encryption live here, in the controller, and not in the links: the
+    // same code protects Bluetooth, Wi-Fi Direct and whatever comes next, and the audio
+    // pipeline still never learns which radio is underneath.
+    //
+    // Every new connection (a first connect, a reconnect, a transport switch) runs a fresh
+    // challenge-response, derives fresh keys, and starts its frame counters at zero. Until
+    // that finishes no audio or floor traffic is sent or accepted.
+
+    private val throttle = AuthThrottle()
+    private val seenNonces = NonceCache()
+    private val securityLock = Any()
+
+    /** This call's ride code, or null when none is set (possible only with legacy allowed). */
+    @Volatile private var rideCode: RideCode? = null
+    @Volatile private var allowLegacy = false
+
+    @Volatile private var security = ChannelSecurity.Pending
+    @Volatile private var cipher: FrameCipher? = null
+    @Volatile private var authInbox: Channel<Message>? = null
+    private var authSession: AuthSession? = null
+    private var authJobs: List<Job> = emptyList()
+
+    private var connectionEpoch = 0
+    private var handledEpoch = -1
+    private var handledAuth: Boolean? = null
+
+    /** Set when the call is being ended for a security reason, so the UI keeps saying why. */
+    @Volatile private var terminal = false
+    @Volatile private var cleartextDropped = 0L
+
+    /** AUTH is advertised only when there is a ride code to prove anything with. */
+    private fun localCaps(): Int = Capabilities.local(opusAvailable, rideCode != null)
+
+    private fun secondsLeft(): Long = (throttle.remainingMs() + 999) / 1000
+
+    /** True when audio and floor traffic may flow, encrypted or (by choice) not. */
+    private fun mediaAllowed(): Boolean =
+        security == ChannelSecurity.Encrypted || security == ChannelSecurity.Unencrypted
+
+    /**
+     * Decides, once per connection, how this call is protected. Called whenever either input
+     * changes - the link reaching Connected, or the buddy's HELLO arriving - and idempotent.
+     */
+    private fun evaluateSecurity() {
+        val l = link ?: return
+        if (l.state.value != LinkState.Connected) return
+        val hello = l.peerHello.value ?: return
+        synchronized(securityLock) {
+            val f = NegotiatedFeatures.negotiate(localCaps(), hello)
+            if (handledEpoch == connectionEpoch && handledAuth == f.auth) return
+            handledEpoch = connectionEpoch
+            handledAuth = f.auth
+            resetSecurityLocked()
+
+            val code = rideCode
+            when (SecurityPolicy.decide(code != null, f.auth, allowLegacy)) {
+                SecurityPolicy.Decision.Authenticate -> beginAuth(l, code!!)
+                SecurityPolicy.Decision.ProceedUnencrypted -> {
+                    // The rider allowed it; the call screen shows a warning the whole time.
+                    Log.w(TAG, "buddy v${hello.version} cannot encrypt; continuing unprotected by choice")
+                    security = ChannelSecurity.Unencrypted
+                    update { it.copy(security = ChannelSecurity.Unencrypted) }
+                }
+                SecurityPolicy.Decision.RefuseBuddy -> failSecurity(
+                    "Your buddy's app can't encrypt calls. Update it, or allow an " +
+                        "unencrypted buddy in Settings."
+                )
+            }
+        }
+    }
+
+    private fun beginAuth(l: PeerLink, code: RideCode) {
+        if (throttle.isLocked) {
+            failSecurity("Too many wrong ride codes. Try again in ${secondsLeft()} s")
+            return
+        }
+        val session = AuthSession(code, sessionId, seenNonces)
+        val inbox = Channel<Message>(capacity = 8, onBufferOverflow = BufferOverflow.DROP_OLDEST)
+        authSession = session
+        authInbox = inbox
+        security = ChannelSecurity.Authenticating
+        update { it.copy(security = ChannelSecurity.Authenticating, statusText = "Securing the call") }
+
+        // Re-send our challenge until the buddy answers: it may not have been listening for
+        // the first one. Gives up after a while rather than hanging forever.
+        val challenge = AuthChallenge(session.localNonce, sessionId).toBytes()
+        val sender = scope.launch {
+            val startedAt = System.currentTimeMillis()
+            while (isActive && session.state == AuthSession.State.AwaitingPeer) {
+                sendRaw(l, Protocol.TYPE_AUTH_CHALLENGE, challenge)
+                delay(AUTH_RESEND_MS)
+                if (session.state == AuthSession.State.AwaitingPeer &&
+                    System.currentTimeMillis() - startedAt > AUTH_TIMEOUT_MS
+                ) {
+                    failSecurity("The security check with your buddy timed out")
+                    return@launch
+                }
+            }
+        }
+        // One consumer, so challenge and response are handled in the order they arrived.
+        // The key derivation inside is slow on purpose and must not run on the reader thread.
+        val worker = scope.launch {
+            for (m in inbox) handleAuthMessage(l, session, m)
+        }
+        authJobs = listOf(sender, worker)
+    }
+
+    private fun handleAuthMessage(l: PeerLink, session: AuthSession, m: Message) {
+        when (m.type) {
+            Protocol.TYPE_AUTH_CHALLENGE -> {
+                val ch = AuthChallenge.parse(m.payload) ?: return
+                val peerSid = if (ch.sessionId != 0L) ch.sessionId
+                else l.peerHello.value?.sessionId ?: 0L
+                session.onPeerChallenge(ch.nonce, peerSid).forEach { applyAuth(l, session, it) }
+            }
+            Protocol.TYPE_AUTH_RESPONSE -> {
+                val r = AuthResponse.parse(m.payload) ?: return
+                applyAuth(l, session, session.onPeerResponse(r.mac))
+            }
+        }
+    }
+
+    private fun applyAuth(l: PeerLink, session: AuthSession, outcome: AuthSession.Outcome) {
+        when (outcome) {
+            is AuthSession.Outcome.SendResponse ->
+                sendRaw(l, Protocol.TYPE_AUTH_RESPONSE, AuthResponse(outcome.mac).toBytes())
+
+            AuthSession.Outcome.Authenticated -> synchronized(securityLock) {
+                if (authSession !== session) return  // a newer connection took over
+                cipher = session.newCipher()
+                security = ChannelSecurity.Encrypted
+                throttle.recordSuccess()
+                val text = link?.status?.value ?: "Connected"
+                update { it.copy(security = ChannelSecurity.Encrypted, statusText = text) }
+                Log.i(TAG, "channel authenticated and encrypted")
+            }
+
+            AuthSession.Outcome.WrongCode -> {
+                throttle.recordFailure()
+                failSecurity("Wrong ride code. Check it matches your buddy's.")
+            }
+
+            is AuthSession.Outcome.Rejected -> failSecurity("Security check failed (${outcome.reason})")
+            AuthSession.Outcome.None -> Unit
+        }
+    }
+
+    /** Ends the call for a security reason: say why, close the link, keep the reason on screen. */
+    private fun failSecurity(message: String) {
+        terminal = true
+        synchronized(securityLock) { resetSecurityLocked() }
+        ticker?.cancel()
+        ticker = null
+        update { it.copy(security = ChannelSecurity.Pending) }
+        fail(message)
+    }
+
+    /** The link is gone: forget keys, they are good for one connection only. */
+    private fun dropSecurity() {
+        synchronized(securityLock) {
+            if (security != ChannelSecurity.Pending || authSession != null) resetSecurityLocked()
+            handledAuth = null
+        }
+        if (_status.value.security != ChannelSecurity.Pending) {
+            update { it.copy(security = ChannelSecurity.Pending) }
+        }
+    }
+
+    private fun resetSecurityLocked() {
+        authJobs.forEach { it.cancel() }
+        authJobs = emptyList()
+        authInbox?.close()
+        authInbox = null
+        authSession?.close()
+        authSession = null
+        cipher = null
+        security = ChannelSecurity.Pending
+    }
+
+    /**
+     * Sends a control or audio frame through the security layer. Encrypted when the
+     * channel is; sent as-is only when the rider allowed an unencrypted buddy; dropped
+     * while the check is still running.
+     */
+    private fun sendFrame(l: PeerLink, type: Byte, seq: Int, flags: Byte, payload: ByteArray?): Boolean =
+        when (security) {
+            ChannelSecurity.Encrypted -> {
+                val c = cipher
+                if (c == null) false else try {
+                    val sealed = c.seal(type, seq, flags, payload ?: ByteArray(0))
+                    l.send(Codec.encode(type, seq, sealed.flags, sealed.payload))
+                } catch (e: IllegalStateException) {
+                    // 2^32 frames sent on one key: never reuse a nonce, rekey by reconnecting.
+                    failSecurity("The secure session ran out of keys. Please reconnect.")
+                    false
+                }
+            }
+            ChannelSecurity.Unencrypted -> l.send(Codec.encode(type, seq, flags, payload))
+            ChannelSecurity.Pending, ChannelSecurity.Authenticating -> false
+        }
+
+    private fun sendControl(type: Byte, body: ByteArray?) {
+        val l = link ?: return
+        sendFrame(l, type, controlSeq.getAndIncrement() and 0xFFFF, 0, body)
+    }
+
+    /** Handshake traffic: cleartext by design, sent regardless of the channel state. */
+    private fun sendRaw(l: PeerLink, type: Byte, body: ByteArray) {
+        l.send(Codec.encode(type, controlSeq.getAndIncrement() and 0xFFFF, 0, body))
     }
 
     // ------------------------------------------------------------ interruption
@@ -633,6 +882,14 @@ class CallController(
         codec = AdpcmAudioCodec()
         finished.release()
         features = NegotiatedFeatures.LEGACY
+        synchronized(securityLock) {
+            resetSecurityLocked()
+            connectionEpoch = 0
+            handledEpoch = -1
+            handledAuth = null
+        }
+        terminal = false
+        rideCode = null
         bitratePolicy.reset()
         prevLost = 0
         prevPlayed = 0
@@ -643,6 +900,7 @@ class CallController(
                 floor = FloorState.Idle,
                 statusText = "Call ended",
                 rttMs = -1,
+                security = ChannelSecurity.Pending,
             )
         }
     }

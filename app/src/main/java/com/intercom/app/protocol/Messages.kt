@@ -50,19 +50,34 @@ data class PositionReport(
     }
 }
 
-/** A random nonce the other side must mix into its response. */
-class AuthChallenge(val nonce: ByteArray) {
+/**
+ * A random nonce the other side must mix into its response, plus the sender's session ID.
+ *
+ * The session ID rides along (payload 24 bytes) so the receiver does not depend on having
+ * already processed the sender's HELLO; it is covered by the response MAC, so it cannot be
+ * altered in flight. An older 16-byte payload parses with [sessionId] = 0, meaning
+ * "use the HELLO's".
+ */
+class AuthChallenge(val nonce: ByteArray, val sessionId: Long = 0L) {
     init { require(nonce.size == NONCE_SIZE) { "nonce must be $NONCE_SIZE bytes" } }
 
-    fun toBytes(): ByteArray = nonce.copyOf()
+    fun toBytes(): ByteArray = ByteBuffer.allocate(SIZE).order(ByteOrder.BIG_ENDIAN)
+        .put(nonce).putLong(sessionId).array()
 
-    override fun equals(other: Any?) = other is AuthChallenge && nonce.contentEquals(other.nonce)
-    override fun hashCode() = nonce.contentHashCode()
+    override fun equals(other: Any?) =
+        other is AuthChallenge && nonce.contentEquals(other.nonce) && sessionId == other.sessionId
+    override fun hashCode() = nonce.contentHashCode() * 31 + sessionId.hashCode()
 
     companion object {
         const val NONCE_SIZE = 16
-        fun parse(b: ByteArray): AuthChallenge? =
-            if (b.size < NONCE_SIZE) null else AuthChallenge(b.copyOf(NONCE_SIZE))
+        const val SIZE = NONCE_SIZE + 8
+        fun parse(b: ByteArray): AuthChallenge? {
+            if (b.size < NONCE_SIZE) return null
+            val sid = if (b.size >= SIZE) {
+                ByteBuffer.wrap(b, NONCE_SIZE, 8).order(ByteOrder.BIG_ENDIAN).long
+            } else 0L
+            return AuthChallenge(b.copyOf(NONCE_SIZE), sid)
+        }
     }
 }
 

@@ -29,6 +29,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -38,6 +42,7 @@ import androidx.compose.ui.unit.sp
 import com.intercom.app.R
 import com.intercom.app.call.CallPhase
 import com.intercom.app.call.CallStatus
+import com.intercom.app.security.ChannelSecurity
 import com.intercom.app.audio.NoiseSuppression
 import com.intercom.app.floor.FloorState
 import com.intercom.app.util.TalkMode
@@ -112,6 +117,8 @@ fun CallScreen(
                 dotColor = if (status.isConnected) Brand.Talking else Brand.Buddy,
             )
         }
+
+        SecurityNotice(status)
 
         // ---- the dial -----------------------------------------------------------
         Spacer(Modifier.height(26.dp))
@@ -333,6 +340,44 @@ fun CallScreen(
                 SecondaryButton("Back", onBack, color = Brand.TextDim, height = 46.dp)
             }
         }
+    }
+}
+
+/**
+ * Says whether the call is protected. Quiet when it is (a small line), loud when it is not:
+ * an unencrypted call is something the rider chose in Settings, and must never be mistaken
+ * for a normal one.
+ */
+@Composable
+private fun SecurityNotice(status: CallStatus) {
+    if (!status.isConnected) return
+    when (status.security) {
+        ChannelSecurity.Encrypted -> Box(Modifier.padding(start = 20.dp, top = 8.dp, end = 16.dp)) {
+            Text(
+                "Encrypted with your ride code",
+                fontSize = 13.sp, color = Brand.Talking,
+                modifier = Modifier.semantics { contentDescription = "Call is encrypted" },
+            )
+        }
+        ChannelSecurity.Authenticating -> Box(Modifier.padding(start = 20.dp, top = 8.dp, end = 16.dp)) {
+            Text("Checking the ride code...", fontSize = 13.sp, color = Brand.Buddy)
+        }
+        ChannelSecurity.Unencrypted -> Box(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+            BrandCard(Modifier.fillMaxWidth()) {
+                Text(
+                    "NOT ENCRYPTED",
+                    fontSize = 11.sp, letterSpacing = 1.6.sp,
+                    fontWeight = FontWeight.Bold, color = Brand.Danger,
+                )
+                Text(
+                    "Your buddy's app cannot encrypt, and you allowed that in Settings. " +
+                        "Anyone nearby with the right equipment can listen to this call.",
+                    fontSize = 14.sp, color = Brand.Danger, lineHeight = 19.sp,
+                    modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
+                )
+            }
+        }
+        ChannelSecurity.Pending -> Unit
     }
 }
 

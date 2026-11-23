@@ -56,6 +56,7 @@ Pick what suits your helmet in **Settings → Microphone**:
 - Half-duplex floor arbitration — one speaker at a time, no crosstalk
 - IMA ADPCM codec at 16 kHz / 20 ms frames (low latency, low bandwidth)
 - Opus voice codec (16 kHz, 24 kbps, in-band FEC, adaptive 24/16/12 kbps) on a native Oboe audio path, falling back to ADPCM with older builds and to AudioRecord/AudioTrack if Oboe fails
+- Ride code and encryption: both phones share a passphrase (4-8 words, or a 6-digit number) that is never sent over the air. After connecting they prove they know it with a challenge-response, then every voice and control frame is encrypted and authenticated with AES-256-GCM. A wrong code closes the link with "Wrong ride code"; repeated wrong codes are throttled. An older buddy without encryption is refused unless you allow it in Settings, and the call screen then shows a "NOT ENCRYPTED" warning
 - Spectral noise suppression — cleans wind and engine noise from your voice
 - Foreground service — call stays alive with the screen off
 - Headset button control (play/pause to cut in)
@@ -63,6 +64,17 @@ Pick what suits your helmet in **Settings → Microphone**:
 - BLE nearby-host discovery — find hosting phones without manual pairing
 - HFP Audio Gateway — bridges with helmet Bluetooth intercoms
 - Automatic transport switching when signal degrades (no manual intervention)
+
+## Security: what the ride code does and does not protect
+
+- The code is never transmitted, and neither is a hash of it. The handshake sends two random nonces and two HMAC-SHA256 proofs; the AES key is derived from the code with PBKDF2-HMAC-SHA256 (150,000 iterations) salted per connection with both nonces and both session IDs.
+- **Not a PAKE.** The brief asks for SPAKE2 or similar if a small, well-maintained library exists. I did not find one I could responsibly add, and hand-writing one is ruled out, so this is the stated fallback: PBKDF2 plus a rate limit. The consequence is real: someone who *records* a handshake can test guesses against it offline. Their cost per guess is 150,000 HMACs and cannot be shared between recordings (the salt is different every time), but the code's own strength is what matters. Five words is 40 bits, which is reasonable; **a 6-digit number is about 20 bits and falls to a recorded handshake quickly**. The app says so when you pick a number. Use words when it matters.
+- The rate limit stops someone standing next to you from guessing live (free for two mistakes, then 15 s, doubling to 5 min). It does nothing against offline guessing.
+- Each connection (first connect, reconnect, transport switch) derives fresh keys, so keys last one connection.
+- PING/PONG, END and SWITCH are not encrypted (they carry no voice or position), so someone who can inject into the link could end a call. They cannot listen or inject audio.
+- An intruder who connects to a waiting host and fails the code closes that host's waiting link, as the spec requires ("close the link"); the host has to start again. Group mode (a later phase) is the place to fix that.
+- The ride code is stored in its own preferences file, excluded from Android backup and device transfer. It is not hardware-keystore protected: a rooted phone can read it.
+- QR scanning uses Google's code scanner from Play services, which draws the camera screen itself, so the app needs no camera permission. That module is downloaded by Play services, not by this app. On a phone without Play services, type the code.
 
 ## Known issues
 
