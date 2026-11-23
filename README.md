@@ -55,6 +55,7 @@ Pick what suits your helmet in **Settings → Microphone**:
 - Voice activity detection — the channel opens when you speak
 - Half-duplex floor arbitration — one speaker at a time, no crosstalk
 - IMA ADPCM codec at 16 kHz / 20 ms frames (low latency, low bandwidth)
+- Opus voice codec (16 kHz, 24 kbps, in-band FEC, adaptive 24/16/12 kbps) on a native Oboe audio path, falling back to ADPCM with older builds and to AudioRecord/AudioTrack if Oboe fails
 - Spectral noise suppression — cleans wind and engine noise from your voice
 - Foreground service — call stays alive with the screen off
 - Headset button control (play/pause to cut in)

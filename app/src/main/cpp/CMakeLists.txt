@@ -6,6 +6,11 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # ---- libopus, a pinned official release, fetched at configure time.
 # Only the library is built: no programs, tests, docs or the autotools tree.
+# Debug builds compile with -O0, which makes libopus far too slow to test on a phone
+# (it says so itself at build time). Keep the native code optimised in every build type.
+set(CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG} -O2")
+set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -O2")
+
 include(FetchContent)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 set(OPUS_BUILD_PROGRAMS OFF CACHE BOOL "" FORCE)

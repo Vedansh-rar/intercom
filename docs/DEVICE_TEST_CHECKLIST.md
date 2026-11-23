@@ -18,3 +18,36 @@ version.
 - [ ] Release build: nothing is listening on port 9333 (`adb shell ss -ltn`).
 - [ ] Release signing with `keystore.properties`: APK installs and verifies with
       `apksigner verify`.
+
+## Phase 2 (Opus + Oboe)
+
+None of this has run on a phone. CI proves it compiles for arm64-v8a and armeabi-v7a and
+that the pure-Kotlin logic passes; libopus and Oboe themselves are untested.
+
+- [ ] Two phones on a v2 build negotiate Opus: stats line shows `codec=Opus@24000` and
+      `io=oboe/oboe` on both.
+- [ ] Opus voice quality is audibly better than ADPCM at the same distance; no clicks,
+      robotic artefacts or doubled audio.
+- [ ] Round-trip with real libopus (no JVM test can do this): speech in one phone is
+      intelligible on the other, and `undecodable` and `codecMismatch` stay at 0.
+- [ ] v2 phone with an older v1 build: call works on ADPCM, `codec=Adpcm`, no errors on
+      either side.
+- [ ] Loss concealment: walk to the edge of range. `fecPlc` rises, speech degrades
+      gracefully instead of stuttering.
+- [ ] Adaptive bitrate: at the edge of range `codec=Opus@16000` / `@12000` appears, and
+      returns to 24000 after about 15 s of clean link. Does not oscillate.
+- [ ] Latency: mouth-to-ear delay is not worse than the AudioRecord/AudioTrack path.
+- [ ] Output underruns: `trackUnderruns` stays low over a 30 minute call on a mid-range
+      phone (the 60 ms output cushion is a guess).
+- [ ] Bluetooth headset stays on A2DP with Oboe capture (music stays stereo): capture uses
+      VOICE_RECOGNITION on purpose, not VoiceCommunication.
+- [ ] Unplug a wired/USB headset mid-call: status shows "Microphone changed -
+      reconnecting", audio resumes on the phone mic or headset, no crash. Same for
+      Bluetooth headset disconnect and reconnect (output side).
+- [ ] Hidden legacy path: long-press the Settings title, start a new call, stats line shows
+      `io=audiorecord/audiotrack` and the call works.
+- [ ] Platform noise suppressor still attaches with Oboe's session id (`hwfx=` in the stats
+      line on a phone that has one).
+- [ ] CPU and battery with Opus + denoiser on a low-end phone over a long call.
+- [ ] Oboe failure fallback: on a phone where Oboe cannot open, the call still starts on
+      AudioRecord/AudioTrack.
