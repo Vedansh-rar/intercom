@@ -236,9 +236,12 @@ fun SettingsScreen(
                 )
             }
             if (settings.windCutHz != WindCutFilter.DEFAULT_HZ || settings.windCutSteep) {
-                SecondaryButton("Reset to ${WindCutFilter.DEFAULT_HZ} Hz") {
-                    onChange { it.copy(windCutHz = WindCutFilter.DEFAULT_HZ, windCutSteep = false) }
-                }
+                SecondaryButton(
+                    text = "Reset to ${WindCutFilter.DEFAULT_HZ} Hz",
+                    onClick = {
+                        onChange { it.copy(windCutHz = WindCutFilter.DEFAULT_HZ, windCutSteep = false) }
+                    },
+                )
             }
         }
 
