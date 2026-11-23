@@ -129,6 +129,10 @@ dependencies {
     // Scans it on the joiner's phone. Google Play services runs the camera UI, so the app
     // itself needs no camera permission; where Play services is missing the rider types the code.
     implementation(libs.play.services.code.scanner)
+    // Group rides only: Nearby Connections carries the bytes between riders' phones. It is
+    // a transport, nothing more - authentication and encryption are our own (security/).
+    // It talks to Play services on the phone over Bluetooth and Wi-Fi; no internet needed.
+    implementation(libs.play.services.nearby)
     debugImplementation(libs.androidx.ui.tooling)
     testImplementation("junit:junit:4.13.2")
 }

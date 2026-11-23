@@ -20,7 +20,7 @@ import kotlin.math.pow
  * back.
  */
 class VoicePlayer(
-    private val jitter: JitterBuffer,
+    source: FrameSource,
     private val beeper: Beeper,
 ) {
     companion object {
@@ -29,6 +29,12 @@ class VoicePlayer(
         /** Frames queued ahead of the native stream. 3 x 20 ms = 60 ms of cushion. */
         private const val QUEUE_FRAMES = 3
     }
+
+    /**
+     * Where frames come from: the jitter buffer in a two-rider call, the group mixer on a
+     * group ride. Switchable because the call decides which at start, after this exists.
+     */
+    @Volatile var source: FrameSource = source
 
     /** Play through native Oboe when available; false forces AudioTrack. Set before [start]. */
     @Volatile var preferOboe: Boolean = true
@@ -172,7 +178,7 @@ class VoicePlayer(
 
     /** Pulls the next 20 ms from the jitter buffer and applies gain and the mute beep. */
     private fun produceFrame(frame: ShortArray) {
-        val got = jitter.take(frame)
+        val got = source.take(frame)
         if (!got) frame.fill(0)
 
         val g = gain
@@ -259,7 +265,7 @@ class VoicePlayer(
      */
     fun restart() {
         stop()
-        jitter.reset()
+        source.reset()
         start()
     }
 

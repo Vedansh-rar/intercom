@@ -30,7 +30,7 @@ import kotlin.random.Random
  */
 class JitterBuffer(
     targetFrames: Int = AudioConstants.JITTER_TARGET_BT,
-) {
+) : FrameSource {
     companion object {
         /** Frames of clean playout before the buffer tries to shrink again (5 s). */
         const val SHRINK_AFTER_CLEAN_FRAMES = 250L
@@ -102,7 +102,7 @@ class JitterBuffer(
         targetFrames = baseTarget
     }
 
-    fun reset() = synchronized(lock) {
+    override fun reset() = synchronized(lock) {
         frames.clear()
         nextSeq = -1
         started = false
@@ -136,7 +136,7 @@ class JitterBuffer(
      * play — real or concealed. It returns false only while the stream is first filling,
      * which is the one time digital silence is the right output.
      */
-    fun take(out: ShortArray): Boolean = synchronized(lock) {
+    override fun take(out: ShortArray): Boolean = synchronized(lock) {
         if (!started) {
             if (frames.size < targetFrames) return false
             started = true

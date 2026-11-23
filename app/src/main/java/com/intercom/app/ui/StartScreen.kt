@@ -78,6 +78,8 @@ fun StartScreen(
     onJoin: (BluetoothDevice) -> Unit,
     onSettings: () -> Unit,
     onOem: () -> Unit,
+    onStartGroup: (priority: Int) -> Unit,
+    onGroupRide: (Boolean) -> Unit,
 ) {
     var hostModeState by remember { mutableStateOf(true) }
     // The whole screen recolours with the choice: orange hosting, blue joining.
@@ -88,6 +90,8 @@ fun StartScreen(
             onRenameRider, onRideCodeChange, onHost, onJoin, onSettings, onOem,
             hostMode = hostModeState,
             onHostMode = { hostModeState = it },
+            onStartGroup = onStartGroup,
+            onGroupRide = onGroupRide,
         )
     }
 }
@@ -111,6 +115,8 @@ private fun StartScreenContent(
     onOem: () -> Unit,
     hostMode: Boolean,
     onHostMode: (Boolean) -> Unit,
+    onStartGroup: (Int) -> Unit,
+    onGroupRide: (Boolean) -> Unit,
 ) {
     var selected by remember(bondedDevices) {
         mutableStateOf(
@@ -125,8 +131,15 @@ private fun StartScreenContent(
     val musicIcon = ImageVector.vectorResource(R.drawable.ic_music_note)
     val audioIcon = ImageVector.vectorResource(R.drawable.ic_volume_up)
     // Both phones must share a ride code, unless the rider has chosen to allow unprotected calls.
-    val hasCode = settings.rideCode.isNotBlank() || settings.allowLegacyBuddy
-    val canGo = ready && hasCode && (hostMode || selected != null)
+    // A group ride is always encrypted, so it has no "unencrypted buddy" way round the code.
+    val group = settings.groupRide
+    val hasCode = settings.rideCode.isNotBlank() || (!group && settings.allowLegacyBuddy)
+    val canGo = ready && hasCode && (group || hostMode || selected != null)
+    // The host of a group starts it with priority 1; riders who join have 0.
+    val go: () -> Unit = {
+        if (group) onStartGroup(if (hostMode) 1 else 0)
+        else if (hostMode) onHost() else selected?.let(onJoin)
+    }
 
     Column(
         Modifier
@@ -223,7 +236,7 @@ private fun StartScreenContent(
             ActionTile(
                 icon = Icons.Filled.PlayArrow,
                 title = "Host Ride",
-                subtitle = "Wait for your buddy",
+                subtitle = if (group) "Start the group" else "Wait for your buddy",
                 selected = hostMode,
                 enabled = ready,
                 onClick = { onHostMode(true); showBuddies = false },
@@ -232,10 +245,10 @@ private fun StartScreenContent(
             ActionTile(
                 icon = Icons.Filled.Person,
                 title = "Join Rider",
-                subtitle = "Connect to a paired phone",
+                subtitle = if (group) "Join the group" else "Connect to a paired phone",
                 selected = !hostMode,
                 enabled = ready,
-                onClick = { onHostMode(false); showBuddies = true },
+                onClick = { onHostMode(false); showBuddies = !group },
                 modifier = Modifier.weight(1f),
             )
         }
@@ -249,6 +262,8 @@ private fun StartScreenContent(
             )
             !bluetoothOn -> Triple("Bluetooth is off", "Turn it on to reach the other phone", Brand.Danger)
             !hasCode -> Triple("Set a ride code", "Both phones need the same code", Brand.Buddy)
+            group && hostMode -> Triple("Ready to lead the group", "Riders join with the ride code", Brand.Talking)
+            group -> Triple("Ready to join the group", "Use the host's ride code", Brand.Talking)
             hostMode -> Triple("Ready to host", "Your buddy joins from their phone", Brand.Talking)
             selected != null -> Triple(
                 "Ready to join",
@@ -294,9 +309,7 @@ private fun StartScreenContent(
                 Box(
                     Modifier
                         .clip(CircleShape)
-                        .clickable(enabled = canGo) {
-                            if (hostMode) onHost() else selected?.let(onJoin)
-                        },
+                        .clickable(enabled = canGo) { go() },
                 ) {
                     MicDial(
                         color = if (canGo) LocalAccents.current.base else Brand.Idle,
@@ -318,21 +331,22 @@ private fun StartScreenContent(
         // ---- start button -------------------------------------------------------
         Box(Modifier.padding(horizontal = 16.dp)) {
             PrimaryButton(
-                text = if (hostMode) "Start hosting" else {
+                text = if (group) { if (hostMode) "Start group ride" else "Join group ride" }
+                else if (hostMode) "Start hosting" else {
                     val label = selected?.let { d ->
                         runCatching { d.name }.getOrNull() ?: d.address
                     }
                     if (label != null) "Join  ·  $label" else "Join"
                 },
                 enabled = canGo,
-                onClick = { if (hostMode) onHost() else selected?.let(onJoin) },
+                onClick = go,
             )
         }
 
         Spacer(Modifier.height(14.dp))
 
-        // ---- buddy picker -------------------------------------------------------
-        Box(Modifier.padding(horizontal = 16.dp)) {
+        // ---- buddy picker (two-rider calls only) --------------------------------
+        if (!group) Box(Modifier.padding(horizontal = 16.dp)) {
             BrandCard(Modifier.fillMaxWidth()) {
                 Row(
                     Modifier.fillMaxWidth().clickable { showBuddies = !showBuddies },
@@ -438,6 +452,12 @@ private fun StartScreenContent(
                     modifier = Modifier.fillMaxWidth(),
                 )
             }
+        }
+
+        // ---- group ride opt-in --------------------------------------------------
+        Spacer(Modifier.height(14.dp))
+        Box(Modifier.padding(horizontal = 16.dp)) {
+            GroupRideCard(enabled = group, onChange = onGroupRide)
         }
 
         // ---- the ride code ------------------------------------------------------

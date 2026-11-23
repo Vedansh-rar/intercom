@@ -31,6 +31,13 @@ enum class Transport(val label: String) {
 
     /** Wi-Fi Direct. 50-100 m line of sight, no pairing, more battery. */
     WifiDirect("Wi-Fi Direct"),
+
+    /**
+     * Google Nearby Connections, used only by group rides ([com.intercom.app.group.GroupLink]).
+     * Last, so the SWITCH ordinals of the two original radios do not move; the selector
+     * never moves a two-rider call onto it.
+     */
+    Nearby("Group (Nearby)"),
     ;
 
     companion object {

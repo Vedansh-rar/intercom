@@ -54,6 +54,8 @@ data class Settings(
      * call screen shows a warning for as long as the call is open.
      */
     val allowLegacyBuddy: Boolean = false,
+    /** Opt in to group mode (three or more riders over Nearby Connections). Off by default. */
+    val groupRide: Boolean = false,
 )
 
 /** Thin SharedPreferences wrapper that publishes the whole [Settings] as a flow. */
@@ -92,6 +94,7 @@ class Prefs(context: Context) {
         legacyAudioPath = sp.getBoolean(K_LEGACY_AUDIO, false),
         rideCode = secrets.getString(K_RIDE_CODE, "") ?: "",
         allowLegacyBuddy = sp.getBoolean(K_ALLOW_LEGACY, false),
+        groupRide = sp.getBoolean(K_GROUP_RIDE, false),
     )
 
     private inline fun <reified T : Enum<T>> enumOf(name: String?, fallback: T): T =
@@ -114,6 +117,7 @@ class Prefs(context: Context) {
             putBoolean(K_BUTTON, next.headsetButtonEnabled)
             putBoolean(K_LEGACY_AUDIO, next.legacyAudioPath)
             putBoolean(K_ALLOW_LEGACY, next.allowLegacyBuddy)
+            putBoolean(K_GROUP_RIDE, next.groupRide)
         }.apply()
         secrets.edit().putString(K_RIDE_CODE, next.rideCode).apply()
         _settings.value = next
@@ -140,6 +144,7 @@ class Prefs(context: Context) {
         const val K_LEGACY_AUDIO = "legacy_audio"
         const val K_OEM_SHOWN = "oem_shown"
         const val K_ALLOW_LEGACY = "allow_legacy_buddy"
+        const val K_GROUP_RIDE = "group_ride"
         const val K_RIDE_CODE = "ride_code"
         const val SECRETS_FILE = "rider_intercom_secret"
     }

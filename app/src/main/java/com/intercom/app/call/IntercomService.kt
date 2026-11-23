@@ -54,6 +54,8 @@ class IntercomService : Service() {
         const val ACTION_TOGGLE_MUTE = "com.intercom.app.TOGGLE_MUTE"
         const val ACTION_CYCLE_NS = "com.intercom.app.CYCLE_NS"
 
+        const val EXTRA_GROUP = "group"
+        const val EXTRA_PRIORITY = "priority"
         const val EXTRA_ROLE = "role"
         const val EXTRA_DEVICE = "device"
 
@@ -73,6 +75,16 @@ class IntercomService : Service() {
                 putExtra(EXTRA_DEVICE, device)
             }
             // Must be called while the app is visible; see the class comment.
+            context.startForegroundService(i)
+        }
+
+        /** Starts a group ride. [priority] is 1 for the host and 0 for riders who join. */
+        fun startGroupCall(context: Context, priority: Int) {
+            val i = Intent(context, IntercomService::class.java).apply {
+                action = ACTION_START
+                putExtra(EXTRA_GROUP, true)
+                putExtra(EXTRA_PRIORITY, priority)
+            }
             context.startForegroundService(i)
         }
 
@@ -152,9 +164,12 @@ class IntercomService : Service() {
             ).also { it.claim() }
         }
 
+        val group = intent.getBooleanExtra(EXTRA_GROUP, false)
+
         // While hosting, tell nearby phones so a buddy can join by tapping a name
-        // instead of hunting through the paired-devices list.
-        if (role == LinkRole.Host) {
+        // instead of hunting through the paired-devices list. A group ride has no buddy
+        // list: riders find each other through Nearby Connections.
+        if (role == LinkRole.Host && !group) {
             val bm2 = getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
             beacon = HostBeacon(bm2.adapter).also {
                 it.start(app.prefs.current.riderName, acceptingJoiners = true)
@@ -162,7 +177,8 @@ class IntercomService : Service() {
         }
 
         started = true
-        controller.start(role, device)
+        if (group) controller.startGroup(intent.getIntExtra(EXTRA_PRIORITY, 0))
+        else controller.start(role, device)
     }
 
     /**

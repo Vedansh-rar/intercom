@@ -32,6 +32,14 @@ Most riders don't own a dedicated helmet intercom. And even a phone call won't h
 5. **Rider B** taps **Join Rider** → selects the host from paired devices.
 6. **Talk.** The channel is always open — just speak and your buddy hears you.
 
+### Group ride (three or more riders)
+
+1. On every phone, set the **same ride code** and switch **Group ride** on (Start screen). Group rides are always encrypted; there is no unencrypted option.
+2. **One rider taps Host Ride → Start group ride.** Everyone else taps **Join Rider → Join group ride**. There is no pairing and no paired-phone list: phones find each other through Google Nearby Connections.
+3. The call screen lists every rider with a speaking indicator, a link-quality label (good / fair / poor), whether they are direct or reached through other riders, and a **Mute** button. Mute affects only your own helmet.
+
+Needs Google Play services. Two riders can leave Group ride off and nothing changes for them.
+
 ### Talk modes
 
 | Mode | How it works |
@@ -57,6 +65,7 @@ Pick what suits your helmet in **Settings → Microphone**:
 - IMA ADPCM codec at 16 kHz / 20 ms frames (low latency, low bandwidth)
 - Opus voice codec (16 kHz, 24 kbps, in-band FEC, adaptive 24/16/12 kbps) on a native Oboe audio path, falling back to ADPCM with older builds and to AudioRecord/AudioTrack if Oboe fails
 - Ride code and encryption: both phones share a passphrase (4-8 words, or a 6-digit number) that is never sent over the air. After connecting they prove they know it with a challenge-response, then every voice and control frame is encrypted and authenticated with AES-256-GCM. A wrong code closes the link with "Wrong ride code"; repeated wrong codes are throttled. An older buddy without encryption is refused unless you allow it in Settings, and the call screen then shows a "NOT ENCRYPTED" warning
+- Group rides (opt-in): Nearby Connections (`P2P_CLUSTER`) carries a convoy. Every neighbour is authenticated with the same ride-code handshake before any audio is accepted. Frames are relayed up to 3 hops with duplicate suppression, each rider is decoded separately and mixed with soft clipping (at most 3 voices at once), and the floor gives the host priority while other speakers are ducked rather than cut off
 - Spectral noise suppression — cleans wind and engine noise from your voice
 - Foreground service — call stays alive with the screen off
 - Headset button control (play/pause to cut in)
@@ -73,10 +82,13 @@ Pick what suits your helmet in **Settings → Microphone**:
 - Each connection (first connect, reconnect, transport switch) derives fresh keys, so keys last one connection.
 - PING/PONG, END and SWITCH are not encrypted (they carry no voice or position), so someone who can inject into the link could end a call. They cannot listen or inject audio.
 - An intruder who connects to a waiting host and fails the code closes that host's waiting link, as the spec requires ("close the link"); the host has to start again. Group mode (a later phase) is the place to fix that.
+- **Group mode is weaker in three ways you should know about.** (1) *Relays are trusted.* Each hop is encrypted, but a phone that relays your voice decrypts it first, so every rider who passes your audio along can hear it. That is the same trust the shared ride code already implies, but it is not end-to-end. (2) *Sender IDs are not authenticated.* Anyone who holds the ride code can claim another rider's ID in the mesh header and speak as them. (3) *The failed-code lockout is shared.* Someone outside the group who guesses wrong codes repeatedly can lock out riders who are trying to join, until the delay expires.
 - The ride code is stored in its own preferences file, excluded from Android backup and device transfer. It is not hardware-keystore protected: a rooted phone can read it.
 - QR scanning uses Google's code scanner from Play services, which draws the camera screen itself, so the app needs no camera permission. That module is downloaded by Play services, not by this app. On a phone without Play services, type the code.
 
 ## Known issues
+
+- **Group mode has not been run on real phones.** It is unit-tested (relay and de-duplication rules across simulated multi-phone meshes, per-rider mixing, floor and priority, the secure channel handshake), but nothing here proves how Nearby Connections behaves with no internet, whether a hop adds more delay than the 200 ms jitter budget allows, how a mid-range phone copes with three Opus decoders, or whether discovery works with the `neverForLocation` Bluetooth-scan flag. Each of these is a line in `docs/DEVICE_TEST_CHECKLIST.md`. The age of a relayed audio frame is estimated (time held at each relay plus 15 ms per hop) because the phones' clocks are not synchronised.
 
 - **Noise suppression presets**: fixed in code. The selector now offers Off / Light / Medium / Strong (Medium did not exist before, which is why the README and the app disagreed), each preset maps to distinct denoiser parameters (unit-tested), and re-enabling after Off no longer replays stale audio. Needs a ride to judge how the presets sound; see `docs/DEVICE_TEST_CHECKLIST.md`.
 
@@ -92,6 +104,8 @@ Phone A                                    Phone B
 └─────────────┘                                  └─────────────┘
          No internet. No cell signal. Direct radio link.
 ```
+
+In a group ride the picture changes only underneath: each phone holds one Nearby Connections link per neighbour (up to 6), wraps every message in a 13-byte mesh header (hops left, random 32-bit sender ID, sequence, age), and forwards what it receives to its other neighbours. The microphone, codec, jitter buffer and player are the same ones; the player just reads from a mixer instead of a single jitter buffer.
 
 The two phones connect directly over Bluetooth Classic (RFCOMM) or Wi-Fi Direct — both are device-to-device radios that work without any network infrastructure. Voice is compressed with IMA ADPCM (4-bit per sample, 32.6 kbps) and sent in 20 ms frames. A spectral denoiser strips wind and engine noise before transmission. The app monitors link quality and switches between Bluetooth and Wi-Fi Direct automatically if the signal degrades.
 

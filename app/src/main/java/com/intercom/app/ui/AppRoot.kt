@@ -33,6 +33,7 @@ fun AppRoot(
     nearbyHosts: List<NearbyHost>,
     onOpenBluetoothSettings: () -> Unit,
     onStartCall: (LinkRole, BluetoothDevice?) -> Unit,
+    onStartGroup: (priority: Int) -> Unit,
     onStopCall: () -> Unit,
     onOpenAppSettings: () -> Unit,
     onRequestBatteryExemption: () -> Unit,
@@ -68,6 +69,8 @@ fun AppRoot(
                     onJoin = { device -> onStartCall(LinkRole.Client, device) },
                     onSettings = { onScreen(Screen.Settings) },
                     onOem = { onScreen(Screen.Oem) },
+                    onStartGroup = onStartGroup,
+                    onGroupRide = { on -> prefs.update { it.copy(groupRide = on) } },
                 )
 
                 Screen.Call -> CallScreen(
@@ -85,6 +88,7 @@ fun AppRoot(
                     },
                     onBack = { onScreen(Screen.Start) },
                     onSettings = { onScreen(Screen.Settings) },
+                    onPeerMute = { id, muted -> service?.controller?.setPeerMuted(id, muted) },
                 )
 
                 Screen.Settings -> SettingsScreen(

@@ -1,6 +1,7 @@
 package com.intercom.app.call
 
 import com.intercom.app.floor.FloorState
+import com.intercom.app.group.GroupPeer
 import com.intercom.app.security.ChannelSecurity
 import com.intercom.app.transport.LinkState
 
@@ -32,6 +33,9 @@ data class CallStatus(
     val elapsedSeconds: Long = 0,
     val error: String? = null,
     val security: ChannelSecurity = ChannelSecurity.Pending,
+    /** True on a group ride. The two-rider fields above keep their meaning for two riders. */
+    val group: Boolean = false,
+    val peers: List<GroupPeer> = emptyList(),
 ) {
     val isConnected: Boolean get() = phase == CallPhase.Active
     val canTalk: Boolean get() = isConnected && floor == FloorState.Talking

@@ -35,6 +35,24 @@ object Permissions {
         return list.toTypedArray()
     }
 
+    /**
+     * Extra for a group ride. Nearby Connections scans and advertises on Bluetooth and
+     * Wi-Fi, and on Android 12 and 12L (API 31-32) it still wants fine location for that.
+     * Older versions already ask for it in [required]; 13+ uses NEARBY_WIFI_DEVICES, also
+     * already asked for. Location is only for the radio scan: nothing reads the position.
+     */
+    fun groupExtras(): Array<String> =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && Build.VERSION.SDK_INT <= 32) {
+            arrayOf(Manifest.permission.ACCESS_FINE_LOCATION)
+        } else emptyArray()
+
+    fun missingForGroup(context: Context): List<String> =
+        (required().toList() + groupExtras()).distinct().filter {
+            ContextCompat.checkSelfPermission(context, it) != PackageManager.PERMISSION_GRANTED
+        }
+
+    fun hasGroup(context: Context): Boolean = missingForGroup(context).isEmpty()
+
     fun missing(context: Context): List<String> =
         required().filter {
             ContextCompat.checkSelfPermission(context, it) != PackageManager.PERMISSION_GRANTED

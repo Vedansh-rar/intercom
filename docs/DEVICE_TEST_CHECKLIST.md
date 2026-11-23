@@ -84,3 +84,68 @@ and phones.
       on a healthy call.
 - [ ] Packet capture on a laptop sniffing the link (if you can): payloads are not
       recognisable audio, and the ride code does not appear anywhere in the capture.
+
+## Phase 4 (group mode)
+
+The relay rules, de-duplication, per-rider mixing, floor and priority, peer bookkeeping and
+the per-connection secure channel are unit-tested on the JVM, including an in-memory
+multi-phone simulation (`GroupNodeTest`). The Nearby Connections link itself (`GroupLink`),
+the Android permissions, and everything about timing on a real radio can only be checked on
+phones. Needs three phones for most items; four or five for the relay items.
+
+Setup: same ride code on all phones, Group ride switched on, one phone taps Host Ride, the
+rest Join Rider.
+
+Discovery and connection
+- [ ] With no SIM and Wi-Fi/mobile data off on every phone, three phones find each other and
+      all show the other two in the rider list. Record how long this takes.
+- [ ] Android 12/12L phone: the group works after granting the permissions the app asks for
+      (including Location). Android 13+: works without Location.
+- [ ] BLUETOOTH_SCAN is declared `neverForLocation`: confirm Nearby discovery still finds
+      peers on Android 12+. If it does not, the flag has to come off for group mode.
+- [ ] A phone without Google Play services shows "Group mode needs Google Play services" and
+      does not crash; two-rider calls still work on it.
+- [ ] A joiner started before the host: it keeps looking and joins when the host starts.
+- [ ] Two phones that both see each other at the same instant do not end up with two
+      connections (look at the "direct" count in `adb logcat -s IntercomStats`).
+
+Security
+- [ ] A phone with a different ride code never appears in anyone's list and plays no audio;
+      it shows "Wrong ride code". The others keep talking.
+- [ ] Wrong codes three times in a row from an outside phone: a rider trying to join then
+      gets "Try again in N s" (expected, documented limitation).
+- [ ] No ride code set: Start group ride is disabled.
+- [ ] Packet capture, if possible: nothing recognisable as audio, no ride code.
+
+Audio and floor
+- [ ] Three phones, one speaks: the other two hear it, and the rider list marks that rider
+      "Speaking" on both.
+- [ ] Two riders speak at once: one wins, the other is heard quietly and sees "Wait for them
+      to finish". The host speaking takes the floor from a joiner mid-sentence, and the joiner's
+      phone stops transmitting.
+- [ ] Mute a rider: silent on this phone only; the others still hear them; a rider who is
+      behind you (reached through your phone) still hears them too.
+- [ ] Speech quality with 2 and 3 people talking over each other: soft clipping, no harsh
+      distortion. Gain per rider is not in the UI yet.
+- [ ] CPU and battery with three simultaneous Opus decoders on the weakest phone you have,
+      screen off, 30 minutes.
+- [ ] Opus phone and ADPCM-only phone in the same group hear each other (each decodes the
+      codec in the frame).
+
+Relay and range
+- [ ] Line of 4 phones A-B-C-D with A and D out of each other's range: D hears A. Measure the
+      delay A to D by recording both; compare with the 200 ms budget.
+- [ ] A 5th phone beyond three hops hears nothing from A (the hop limit holds).
+- [ ] Walk the middle phone away: the far phones lose each other, the rider list updates
+      within about 15 s, and the floor is not stuck on a rider who left.
+- [ ] Bring the middle phone back: riders reappear without restarting the app.
+- [ ] Switch a rider's phone off mid-sentence: floor is released within about 2 s.
+- [ ] `adb logcat -s IntercomStats`: `relayed`, `dropped`, `stale` and `overCap` counts look
+      sane, and `stale` stays near zero in a normal group.
+- [ ] Nearby delivers payloads reliably and in order, so one lost packet can stall the ones
+      behind it. Walk to the edge of range with a 3-phone group and listen for bursts of
+      delayed audio.
+
+Regression
+- [ ] Two phones with Group ride off: Bluetooth and Wi-Fi Direct calls behave exactly as in
+      Phase 3 (connect, encrypted, switch transports).

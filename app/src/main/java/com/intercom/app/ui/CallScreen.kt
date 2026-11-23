@@ -67,6 +67,7 @@ fun CallScreen(
     onEnd: () -> Unit,
     onBack: () -> Unit,
     onSettings: () -> Unit,
+    onPeerMute: (id: Int, muted: Boolean) -> Unit = { _, _ -> },
 ) = WithAccents(host = status.isHost) {
     val accents = LocalAccents.current
     val stateColor = when {
@@ -109,6 +110,7 @@ fun CallScreen(
         Box(Modifier.padding(horizontal = 16.dp)) {
             StatusPill(
                 headline = when {
+                    status.group -> if (status.peers.isEmpty()) "Group ride" else "Group ride · ${status.peers.size + 1} riders"
                     status.isConnected -> status.peerName?.let { "Linked with $it" } ?: "Linked"
                     status.isHost -> "Hosting"
                     else -> "Joining"
@@ -136,7 +138,7 @@ fun CallScreen(
                         !status.isConnected -> phaseLabel(status)
                         status.floor == FloorState.Talking -> "You are talking"
                         status.floor == FloorState.Muted ->
-                            "${status.peerName ?: "Buddy"} is talking"
+                            "${status.peerName ?: if (status.group) "A rider" else "Buddy"} is talking"
                         else -> "Channel clear"
                     },
                     color = dialColor,
@@ -144,7 +146,8 @@ fun CallScreen(
                         !status.isConnected ->
                             if (status.isHost) "Your buddy joins from their phone"
                             else "Reaching the other phone"
-                        status.floor == FloorState.Muted -> "Your mic is muted until they stop"
+                        status.floor == FloorState.Muted ->
+                            if (status.group) "Wait for them to finish before you speak" else "Your mic is muted until they stop"
                         else -> "Speak to talk · pause to release"
                     },
                 )
@@ -265,6 +268,13 @@ fun CallScreen(
             }
         }
 
+        if (status.group) {
+            Spacer(Modifier.height(14.dp))
+            Box(Modifier.padding(horizontal = 16.dp)) {
+                PeerList(status.peers, onPeerMute)
+            }
+        }
+
         Spacer(Modifier.height(14.dp))
 
         // ---- what the three subsystems are doing ---------------------------------
@@ -306,16 +316,18 @@ fun CallScreen(
                     fontWeight = FontWeight.SemiBold, color = Brand.TextDim,
                 )
                 KeyValueRow("State", status.link.name)
-                KeyValueRow(
-                    "Round trip",
-                    if (status.rttMs < 0) "measuring" else "${status.rttMs} ms",
-                )
-                KeyValueRow(
-                    "Frame loss",
-                    "%.1f %%".format(status.lossPercent),
-                    valueColor = if (status.lossPercent > 5) Brand.Buddy else Brand.TextPrimary,
-                )
-                KeyValueRow("Jitter buffer", "${status.jitterDepth} frames")
+                if (!status.group) {
+                    KeyValueRow(
+                        "Round trip",
+                        if (status.rttMs < 0) "measuring" else "${status.rttMs} ms",
+                    )
+                    KeyValueRow(
+                        "Frame loss",
+                        "%.1f %%".format(status.lossPercent),
+                        valueColor = if (status.lossPercent > 5) Brand.Buddy else Brand.TextPrimary,
+                    )
+                    KeyValueRow("Jitter buffer", "${status.jitterDepth} frames")
+                }
                 KeyValueRow("Role", if (status.isHost) "Host" else "Joined")
                 KeyValueRow("Call time", formatElapsed(status.elapsedSeconds))
             }

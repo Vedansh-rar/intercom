@@ -130,8 +130,11 @@ data class SosAlert(
     }
 }
 
-/** A rider's display name and status. */
-data class PeerInfo(val status: Status, val name: String) {
+/**
+ * A rider's display name and status. [priority] is group-mode only (0 normal, 1 host) and
+ * rides after the name, where a reader that predates it never looks.
+ */
+data class PeerInfo(val status: Status, val name: String, val priority: Int = 0) {
 
     enum class Status(val wire: Int) {
         Ok(0), Muted(1), Deafened(2), Busy(3);
@@ -144,8 +147,8 @@ data class PeerInfo(val status: Status, val name: String) {
     fun toBytes(): ByteArray {
         val raw = name.toByteArray(Charsets.UTF_8)
         val n = if (raw.size > NAME_BYTES) raw.copyOf(NAME_BYTES) else raw
-        return ByteBuffer.allocate(2 + n.size).put(status.wire.toByte()).put(n.size.toByte())
-            .put(n).array()
+        return ByteBuffer.allocate(2 + n.size + 1).put(status.wire.toByte()).put(n.size.toByte())
+            .put(n).put(priority.coerceIn(0, 255).toByte()).array()
     }
 
     companion object {
@@ -155,9 +158,11 @@ data class PeerInfo(val status: Status, val name: String) {
             if (b.size < 2) return null
             val len = (b[1].toInt() and 0xFF).coerceAtMost(NAME_BYTES)
             if (b.size < 2 + len) return null
+            val priority = if (b.size > 2 + len) b[2 + len].toInt() and 0xFF else 0
             return PeerInfo(
                 Status.fromWire(b[0].toInt() and 0xFF),
                 String(b, 2, len, Charsets.UTF_8),
+                priority,
             )
         }
     }

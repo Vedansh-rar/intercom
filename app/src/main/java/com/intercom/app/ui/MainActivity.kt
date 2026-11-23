@@ -83,6 +83,7 @@ class MainActivity : ComponentActivity() {
                         runCatching { startActivity(OemDetector.bluetoothSettingsIntent()) }
                     },
                     onStartCall = ::startCall,
+                    onStartGroup = ::startGroupCall,
                     onStopCall = { IntercomService.stopCall(this) },
                     onOpenAppSettings = {
                         runCatching { startActivity(OemDetector.appDetailsIntent(this)) }
@@ -153,6 +154,19 @@ class MainActivity : ComponentActivity() {
             }
         }
         IntercomService.startCall(this, role, device)
+        screen = Screen.Call
+    }
+
+    /**
+     * A group ride. Same rule as [startCall]: only from the visible app. Needs the extra
+     * radio permissions a convoy scan wants on Android 12 and 12L, asked for here.
+     */
+    private fun startGroupCall(priority: Int) {
+        if (!Permissions.hasGroup(this)) {
+            askPermissions.launch((Permissions.required().toList() + Permissions.groupExtras()).distinct().toTypedArray())
+            return
+        }
+        IntercomService.startGroupCall(this, priority)
         screen = Screen.Call
     }
 }

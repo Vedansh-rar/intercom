@@ -80,6 +80,12 @@ object Protocol {
     /** Display name and status of a rider. See [PeerInfo]. */
     const val TYPE_PEER_INFO: Byte = 0x0D
 
+    /**
+     * Group mode only: a mesh envelope wrapping another message so it can be relayed. See
+     * [com.intercom.app.group.MeshEnvelope]. Two-rider calls never send it.
+     */
+    const val TYPE_MESH: Byte = 0x0E
+
     const val TYPE_HELLO: Byte = 0x10
 
     /** The v1 HELLO, and the fixed head of every HELLO. */
@@ -98,6 +104,7 @@ object Protocol {
         TYPE_AUTH_RESPONSE -> "AUTH_RESPONSE"
         TYPE_SOS -> "SOS"
         TYPE_PEER_INFO -> "PEER_INFO"
+        TYPE_MESH -> "MESH"
         TYPE_FLOOR_TAKEN -> "FLOOR_TAKEN"
         TYPE_FLOOR_RELEASE -> "FLOOR_RELEASE"
         TYPE_FLOOR_DENIED -> "FLOOR_DENIED"

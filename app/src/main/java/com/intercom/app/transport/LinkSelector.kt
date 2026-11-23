@@ -136,6 +136,7 @@ class LinkSelector(
         val link: PeerLink = when (target) {
             Transport.Bluetooth -> RfcommLink(adapter, role, peerDevice, localHello)
             Transport.WifiDirect -> WifiDirectLink(context, role, localHello)
+            Transport.Nearby -> error("Nearby is the group transport; two-rider calls never use it")
         }
         active = link
         current = target
@@ -147,7 +148,7 @@ class LinkSelector(
             // audio pipeline, so it is consumed here.
             if (m.type == Protocol.TYPE_SWITCH) {
                 val want = Transport.fromOrdinal(m.payload.firstOrNull()?.toInt() ?: -1)
-                if (want != null && want != current && !switchInProgress) {
+                if (want != null && want != Transport.Nearby && want != current && !switchInProgress) {
                     Log.i(TAG, "buddy asked to move to $want")
                     _status.value = "Buddy moved to ${want.label}"
                     scope.launch { performSwitch(want, SwitchReason.Preference, tell = false) }

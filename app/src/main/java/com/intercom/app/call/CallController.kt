@@ -23,6 +23,8 @@ import com.intercom.app.floor.FloorArbiter
 import com.intercom.app.floor.FloorState
 import com.intercom.app.floor.Vad
 import com.intercom.app.floor.VadEvent
+import com.intercom.app.group.GroupCall
+import com.intercom.app.group.GroupLink
 import com.intercom.app.media.FocusManager
 import com.intercom.app.protocol.AuthChallenge
 import com.intercom.app.protocol.AuthResponse
@@ -140,6 +142,9 @@ class CallController(
     }
 
     private var mic: MicCapture? = null
+
+    /** Non-null for the whole of a group ride; two-rider calls never touch it. */
+    @Volatile private var group: GroupCall? = null
 
     /**
      * What this call may use, from both sides' HELLOs. Until a HELLO arrives, and for any
@@ -269,6 +274,160 @@ class CallController(
 
         observeLink(l)
         startTicker(l, arb)
+    }
+
+    /**
+     * Starts a group ride: the same audio pipeline, but carried by Nearby Connections to as
+     * many riders as join, each authenticated with the ride code. [priority] is 1 for the
+     * rider who started the ride (the host) and 0 for those who joined; a higher priority
+     * takes the floor from a lower one.
+     */
+    fun startGroup(priority: Int) {
+        if (_status.value.phase != CallPhase.Idle && _status.value.phase != CallPhase.Ended &&
+            _status.value.phase != CallPhase.Error
+        ) return
+
+        if (!Permissions.hasMicrophone(context)) { fail("Microphone permission is not granted"); return }
+        if (!Permissions.hasGroup(context)) { fail("Nearby permissions are not granted"); return }
+        if (!GroupLink.isAvailable(context)) { fail("Group mode needs Google Play services"); return }
+
+        val settings = prefs.current
+        terminal = false
+        val code = RideCode.parseOrNull(settings.rideCode)
+        if (code == null) {
+            // A group has no "allow unencrypted" escape hatch: there is no single buddy to
+            // trade off, and an open group would let anyone in range listen.
+            fail("Set a ride code first. Group rides are always encrypted.")
+            return
+        }
+        rideCode = code
+        if (throttle.isLocked) { fail("Too many wrong ride codes. Try again in ${secondsLeft()} s"); return }
+
+        focus.takeFocus = settings.takeAudioFocus
+        applyVoiceLevel(settings.voiceLevelDb, settings.takeAudioFocus)
+        startedAtMs = System.currentTimeMillis()
+        update {
+            it.copy(
+                phase = CallPhase.Starting,
+                isHost = priority > 0,
+                group = true,
+                peers = emptyList(),
+                statusText = "Looking for riders",
+                error = null,
+            )
+        }
+
+        val g = GroupCall(
+            context = context,
+            prefs = prefs,
+            code = code,
+            priority = priority,
+            opusAvailable = opusAvailable,
+            focus = focus,
+            beeper = beeper,
+            throttle = throttle,
+            seenNonces = seenNonces,
+            onChanged = { publishGroup() },
+        )
+        group = g
+        player.source = g.mixer
+        player.preferOboe = !settings.legacyAudioPath
+        player.onStatus = ::onAudioStatus
+        g.start()
+        if (!player.start()) {
+            fail("Could not open the audio output")
+            return
+        }
+        val m = MicCapture(
+            audioManager = audioManager,
+            source = settings.micSource,
+            noiseSuppression = settings.noiseSuppression,
+            useOboe = !settings.legacyAudioPath,
+            onStatus = ::onAudioStatus,
+            onFrame = ::onMicFrame,
+        )
+        if (!m.start()) {
+            fail("Could not open the microphone")
+            return
+        }
+        mic = m
+        observeGroup(g)
+        startGroupTicker(g)
+    }
+
+    /** Mutes or unmutes one rider on this phone only. Their traffic is still relayed. */
+    fun setPeerMuted(id: Int, muted: Boolean) {
+        group?.node?.setPeerMuted(id, muted)
+        publishGroup()
+    }
+
+    private fun observeGroup(g: GroupCall) {
+        scope.launch {
+            g.linkState.collect { st ->
+                // A group has no "buddy" to wait for: it is Active from the moment the
+                // radio is searching, so the rider sees the peer list fill in.
+                val phase = when (st) {
+                    LinkState.Idle -> CallPhase.Starting
+                    LinkState.Listening, LinkState.Connecting, LinkState.Handshaking,
+                    LinkState.Connected, LinkState.Reconnecting -> CallPhase.Active
+                    LinkState.Failed -> CallPhase.Error
+                    LinkState.Closed -> CallPhase.Ended
+                }
+                update { it.copy(phase = if (terminal) CallPhase.Error else phase, link = st) }
+            }
+        }
+        scope.launch { g.linkStatus.collect { publishGroup() } }
+    }
+
+    private fun publishGroup() {
+        val g = group ?: return
+        val text = if (g.sawWrongCode) "Wrong ride code. Check it matches the group's." else g.linkStatus.value
+        val speaker = g.speakerName()
+        update {
+            it.copy(
+                peers = g.peers(),
+                floor = g.node.floor.state(),
+                muted = g.node.floor.state() == FloorState.Muted,
+                peerName = speaker,
+                security = if (g.node.port.readyEndpoints().isNotEmpty()) ChannelSecurity.Encrypted else ChannelSecurity.Pending,
+                statusText = text,
+            )
+        }
+    }
+
+    private fun startGroupTicker(g: GroupCall) {
+        ticker?.cancel()
+        var ticks = 0L
+        ticker = scope.launch {
+            while (isActive) {
+                delay(TICK_MS)
+                g.tick()
+                _micLevel.value = ((mic?.lastRms ?: 0.0) / 6000.0).coerceIn(0.0, 1.0).toFloat()
+                ticks++
+                if (ticks % STATUS_EVERY_TICKS == 0L) {
+                    publishGroup()
+                    update {
+                        it.copy(
+                            focusHeld = focus.isHeld,
+                            elapsedSeconds = if (startedAtMs == 0L) 0
+                            else (System.currentTimeMillis() - startedAtMs) / 1000,
+                        )
+                    }
+                }
+                if (ticks % STATS_EVERY_TICKS == 0L) {
+                    val n = g.node
+                    Log.i(
+                        STATS_TAG,
+                        "group peers=${n.peers.size} direct=${n.port.readyEndpoints().size} " +
+                            "floor=${n.floor.state()} relayed=${n.relayed} dropped=${n.dropped} " +
+                            "stale=${n.droppedStale} streams=${g.mixer.activeStreams()} " +
+                            "overCap=${g.mixer.droppedOverCap} muted=${g.mixer.droppedMuted} " +
+                            "badCodec=${g.mixer.droppedUnknownCodec} " +
+                            "t=${(System.currentTimeMillis() - startedAtMs) / 1000}s",
+                    )
+                }
+            }
+        }
     }
 
     /** Switches to the codec both phones agreed on. Idempotent, and a no-op for ADPCM. */
@@ -423,6 +582,7 @@ class CallController(
     /** Called on the capture thread, once per 20 ms. */
     private fun onMicFrame(frame: ShortArray) {
         if (suspendedForInterruption) return
+        group?.let { it.onMicFrame(frame); return }
         val arb = arbiter ?: return
         val l = link ?: return
 
@@ -807,6 +967,7 @@ class CallController(
         jitter.reset()
         vad.reset()
         preroll.clear()
+        group?.resetCapture()
         player.restart()
         update { it.copy(statusText = "Resumed") }
     }
@@ -814,12 +975,18 @@ class CallController(
     // ----------------------------------------------------------------- control
 
     fun setPushToTalk(down: Boolean) {
+        val g = group
+        if (g != null) {
+            g.setPushToTalk(down)
+            update { it.copy(pushToTalk = down) }
+            return
+        }
         arbiter?.setPushToTalk(down, _status.value.peerName)
         if (down) focus.duck() else focus.undock()
         update { it.copy(pushToTalk = down) }
     }
 
-    fun togglePushToTalk() = setPushToTalk(!(arbiter?.pushToTalk ?: false))
+    fun togglePushToTalk() = setPushToTalk(!(group?.pushToTalkDown ?: arbiter?.pushToTalk ?: false))
 
     /** The radio currently carrying the call, for the status line. */
     val activeTransport: Transport? get() = selector?.activeTransport?.value
@@ -853,6 +1020,7 @@ class CallController(
         mic?.noiseSuppression = s.noiseSuppression
         focus.takeFocus = s.takeAudioFocus
         applyVoiceLevel(s.voiceLevelDb, s.takeAudioFocus)
+        group?.applySettings()
     }
 
     private fun applyVoiceLevel(voiceLevelDb: Int, takeFocus: Boolean) {
@@ -870,6 +1038,10 @@ class CallController(
         link = null
         selector = null
         player.stop()
+        // The mixer's decoders are released only after the player thread has stopped.
+        group?.stop()
+        group = null
+        player.source = jitter
         focus.release()
         jitter.reset()
         arbiter?.reset()
@@ -901,6 +1073,8 @@ class CallController(
                 statusText = "Call ended",
                 rttMs = -1,
                 security = ChannelSecurity.Pending,
+                group = false,
+                peers = emptyList(),
             )
         }
     }
@@ -916,6 +1090,8 @@ class CallController(
         mic?.stop(); mic = null
         link?.close(); link = null
         player.stop()
+        group?.stop(); group = null
+        player.source = jitter
         focus.release()
     }
 
