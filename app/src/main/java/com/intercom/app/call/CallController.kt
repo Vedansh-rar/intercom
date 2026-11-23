@@ -479,13 +479,14 @@ class CallController(
     fun switchTransport(target: Transport) { selector?.switchNow(target) }
 
     /**
-     * Steps Off -> Light -> Strong -> Off and applies it to the live capture path, so the
+     * Steps Off -> Light -> Medium -> Strong -> Off and applies it to the live capture path, so the
      * rider can judge the setting against the actual wind instead of in a quiet car park.
      */
     fun cycleNoiseSuppression(): NoiseSuppression {
         val next = when (prefs.current.noiseSuppression) {
             NoiseSuppression.Off -> NoiseSuppression.Light
-            NoiseSuppression.Light -> NoiseSuppression.Strong
+            NoiseSuppression.Light -> NoiseSuppression.Medium
+            NoiseSuppression.Medium -> NoiseSuppression.Strong
             NoiseSuppression.Strong -> NoiseSuppression.Off
         }
         prefs.update { it.copy(noiseSuppression = next) }

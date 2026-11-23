@@ -26,6 +26,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.OutputStream
@@ -137,6 +138,10 @@ class WifiDirectLink(
     @Volatile private var voice: DatagramSocket? = null
     @Volatile private var peerAddress: InetAddress? = null
 
+    /** The group owner's address as the framework reported it, for the joiner. */
+    @Volatile private var reportedOwnerAddress: String? = null
+    private val connectGate = ConnectGate()
+
     private var wifiLock: WifiManager.WifiLock? = null
     private val outbox = Channel<ByteArray>(capacity = 96)
     private val seq = AtomicInteger(0)
@@ -198,6 +203,9 @@ class WifiDirectLink(
         tearDownGroup()
         closeSockets()
         releaseWifiLock()
+        // Release the framework channel too; leaving it open leaks it across calls.
+        runCatching { channel?.close() }
+        channel = null
         mainJob?.cancel()
         scope.cancel()
         outbox.close()
@@ -364,13 +372,20 @@ class WifiDirectLink(
         val mgr = manager ?: return@withContext false
         val ch = channel ?: return@withContext false
         groupFormed = false
+        reportedOwnerAddress = null
+        connectGate.reset()
 
         val deadline = System.currentTimeMillis() + GROUP_FORM_TIMEOUT_MS
         while (running && System.currentTimeMillis() < deadline && !groupFormed) {
             // Discovery stops on its own on most phones, so re-issue it on a timer.
             mgr.discoverPeers(ch, null)
             val found = awaitPeer()
-            if (found != null) {
+            val now = System.currentTimeMillis()
+            if (found != null && connectGate.mayConnect(found, now)) {
+                // A connect still negotiating from the last cycle would be cancelled by a
+                // new one; clear it first so the new attempt starts clean.
+                if (connectGate.hasAttempted) mgr.cancelConnect(ch, null)
+                connectGate.recordAttempt(found, now)
                 val config = WifiP2pConfig().apply {
                     deviceAddress = found
                     // Never contest ownership: the host already made the group.
@@ -379,27 +394,40 @@ class WifiDirectLink(
                 mgr.connect(ch, config, object : WifiP2pManager.ActionListener {
                     override fun onSuccess() { Log.i(TAG, "connect accepted") }
                     override fun onFailure(reason: Int) {
-                        Log.w(TAG, "connect failed: $reason")
+                        val why = reasonText(reason)
+                        Log.w(TAG, "connect failed: $why")
+                        lastGroupError = "Could not join the Wi-Fi group - $why"
+                        // A failed connect may be retried at once; there is nothing in
+                        // flight to protect.
+                        connectGate.reset()
                     }
                 })
             }
             withTimeoutOrNullMs(DISCOVER_INTERVAL_MS) { while (!groupFormed && running) delay(200) }
         }
+        if (!groupFormed) lastGroupError = "Could not find the host's Wi-Fi group"
         groupFormed
     }
 
+    /**
+     * Asks the framework for the peers it has seen and waits for the actual callback,
+     * rather than sleeping a fixed 1.2 s and hoping it had fired by then.
+     */
     @SuppressLint("MissingPermission")
     private suspend fun awaitPeer(): String? = withContext(io) {
         val mgr = manager ?: return@withContext null
         val ch = channel ?: return@withContext null
-        var address: String? = null
-        mgr.requestPeers(ch) { peers ->
-            // The host advertises itself as a group owner, so prefer one of those.
-            address = peers.deviceList.firstOrNull { it.isGroupOwner }?.deviceAddress
-                ?: peers.deviceList.firstOrNull()?.deviceAddress
+        val answer = kotlinx.coroutines.withTimeoutOrNull(2500) {
+            suspendCancellableCoroutine<String?> { cont ->
+                mgr.requestPeers(ch) { peers ->
+                    val candidates = peers.deviceList.map {
+                        PeerCandidate(it.deviceAddress.orEmpty(), it.isGroupOwner)
+                    }
+                    if (cont.isActive) cont.resumeWith(Result.success(PeerPicker.pick(candidates)))
+                }
+            }
         }
-        delay(1200)
-        address
+        answer
     }
 
     private suspend fun waitForGroup(): Boolean {
@@ -445,7 +473,7 @@ class WifiDirectLink(
                             mgr.requestConnectionInfo(ch) { info ->
                                 if (info != null && info.groupFormed) {
                                     groupFormed = true
-                                    peerAddress = info.groupOwnerAddress
+                                    reportedOwnerAddress = info.groupOwnerAddress?.hostAddress
                                     Log.i(
                                         TAG,
                                         "group formed, owner=${info.isGroupOwner} " +
@@ -481,13 +509,24 @@ class WifiDirectLink(
 
     private suspend fun openSockets() = withContext(io) {
         closeSockets()
-        val v = DatagramSocket(if (role == LinkRole.Host) VOICE_PORT else 0)
-        v.soTimeout = 1000
+        // Both phones bind the voice port: each side sends its datagrams to the other's
+        // VOICE_PORT. The joiner used to bind an ephemeral port, so the host's voice was
+        // sent to a port nobody was listening on and the joiner heard silence.
+        val v = DatagramSocket(null).apply {
+            reuseAddress = true
+            bind(InetSocketAddress(VOICE_PORT))
+            soTimeout = 1000
+        }
         voice = v
 
         if (role == LinkRole.Host) {
-            val ss = ServerSocket(CONTROL_PORT)
-            ss.soTimeout = GROUP_FORM_TIMEOUT_MS.toInt()
+            // reuseAddress lets a quick restart bind the port while the last one is in
+            // TIME_WAIT instead of failing with "address already in use".
+            val ss = ServerSocket().apply {
+                reuseAddress = true
+                bind(InetSocketAddress(CONTROL_PORT))
+                soTimeout = GROUP_FORM_TIMEOUT_MS.toInt()
+            }
             serverSocket = ss
             val s = ss.accept()
             s.tcpNoDelay = true
@@ -497,13 +536,43 @@ class WifiDirectLink(
             runCatching { ss.close() }
             serverSocket = null
         } else {
-            val s = Socket()
-            s.connect(InetSocketAddress(GROUP_OWNER_IP, CONTROL_PORT), CONNECT_TIMEOUT_MS)
+            val owner = OwnerAddress.resolve(reportedOwnerAddress)
+            val s = connectWithRetry(owner)
             s.tcpNoDelay = true
             control = s
             controlOut = s.outputStream
-            peerAddress = InetAddress.getByName(GROUP_OWNER_IP)
+            peerAddress = InetAddress.getByName(owner)
         }
+    }
+
+    /**
+     * Connects the control socket, retrying while the owner is not yet listening. The two
+     * phones see the group form at slightly different moments, so a refused connect in
+     * the first second or two is normal rather than an error.
+     */
+    private suspend fun connectWithRetry(owner: String): Socket {
+        val policy = ConnectRetryPolicy()
+        val startedAt = System.currentTimeMillis()
+        var attempt = 0
+        var lastError: Throwable? = null
+        while (running) {
+            val s = Socket()
+            try {
+                s.connect(InetSocketAddress(owner, CONTROL_PORT), CONNECT_TIMEOUT_MS)
+                return s
+            } catch (t: Throwable) {
+                runCatching { s.close() }
+                lastError = t
+                Log.w(TAG, "control connect to $owner failed (try ${attempt + 1}): ${t.message}")
+            }
+            attempt++
+            val wait = policy.delayBefore(attempt, System.currentTimeMillis() - startedAt)
+                ?: break
+            delay(wait)
+        }
+        throw java.io.IOException(
+            "Could not reach the host over Wi-Fi Direct: ${lastError?.message ?: "stopped"}",
+        )
     }
 
     private fun closeSockets() {

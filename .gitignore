@@ -12,12 +12,11 @@ local.properties
 hs_err_pid*.log
 logs/
 *.aab
-# Allow the release APK in root
+# APKs are published to GitHub Releases, never committed (see RELEASING.md)
 *.apk
-!rider-intercom.apk
 *.jks
 *.keystore
-!debug.keystore
+keystore.properties
 scratchpad/
 .claude/
 

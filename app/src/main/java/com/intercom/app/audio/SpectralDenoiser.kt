@@ -18,9 +18,28 @@ enum class NoiseSuppression(
     /** Town riding. Takes the hiss out without touching the voice. */
     Light("Light", 1.4, 0.24),
 
+    /** Mixed riding. A middle step between town hiss and highway roar. */
+    Medium("Medium", 1.9, 0.16),
+
     /** Highway. Removes engine and wind roar; voice sounds slightly processed. */
-    Strong("Strong", 2.5, 0.11),
+    Strong("Strong", 2.5, 0.11);
+
+    /**
+     * The parameters the denoiser actually uses for this preset.
+     *
+     * When the phone's own suppressor already ran ahead of ours the steady noise is mostly
+     * gone, so the depth is eased back. It is eased by a fixed factor on every preset so
+     * the presets keep their order: Light < Medium < Strong in both modes.
+     */
+    fun params(platformSuppressionActive: Boolean): DenoiseParams =
+        if (this == Off) DenoiseParams(0.0, 1.0)
+        else if (platformSuppressionActive) {
+            DenoiseParams(overSubtract * 0.5, minOf(1.0, gainFloor * 1.6))
+        } else DenoiseParams(overSubtract, gainFloor)
 }
+
+/** Over-subtraction factor and per-bin gain floor in effect for one window. */
+data class DenoiseParams(val overSubtract: Double, val gainFloor: Double)
 
 /**
  * Spectral noise suppression on the transmitted voice.
@@ -70,7 +89,22 @@ class SpectralDenoiser(strength: NoiseSuppression = NoiseSuppression.Light) {
         private const val EPS = 1e-9
     }
 
+    /**
+     * Changed live from the settings screen. Coming back from Off the analysis queues
+     * hold stale audio and the noise estimate is from before, so the state is cleared
+     * rather than letting old samples leak into the first windows.
+     */
     @Volatile var strength: NoiseSuppression = strength
+        set(value) {
+            if (field == NoiseSuppression.Off && value != NoiseSuppression.Off) needsReset = true
+            field = value
+        }
+
+    @Volatile private var needsReset = false
+
+    /** The parameters in effect right now; exposed so tests can prove presets differ. */
+    val effectiveParams: DenoiseParams
+        get() = strength.params(platformSuppressionActive)
 
     /**
      * Set when the phone's own hardware suppressor is running ahead of this one. The
@@ -116,6 +150,7 @@ class SpectralDenoiser(strength: NoiseSuppression = NoiseSuppression.Light) {
      */
     fun process(frame: ShortArray) {
         if (strength == NoiseSuppression.Off) return
+        if (needsReset) { needsReset = false; reset() }
 
         // 1. Append the new samples to the analysis queue.
         if (inLen + frame.size > inQ.size) inLen = 0 // cannot happen in steady state
@@ -149,10 +184,9 @@ class SpectralDenoiser(strength: NoiseSuppression = NoiseSuppression.Light) {
         }
         fft.forward(re, im)
 
-        val alpha = if (platformSuppressionActive) strength.overSubtract * 0.5
-        else strength.overSubtract
-        val floor = if (platformSuppressionActive) minOf(1.0, strength.gainFloor * 1.6)
-        else strength.gainFloor
+        val params = effectiveParams
+        val alpha = params.overSubtract
+        val floor = params.gainFloor
 
         // Decide once per window whether this looks like speech. The per-bin follower
         // below is only allowed to rise when it does not, which is what stops a held

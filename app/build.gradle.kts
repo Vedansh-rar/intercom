@@ -16,14 +16,34 @@ android {
         versionName = "1.0-phase1"
     }
 
+    // Release signing comes from keystore.properties (gitignored) or environment
+    // variables, never from the repository:
+    //   keystore.properties: storeFile=..., storePassword=..., keyAlias=..., keyPassword=...
+    //   environment:         RELEASE_STORE_FILE, RELEASE_STORE_PASSWORD,
+    //                        RELEASE_KEY_ALIAS, RELEASE_KEY_PASSWORD
+    // When neither is present the release build is left unsigned and a warning says so.
+    val keystoreProps = java.util.Properties().apply {
+        val f = rootProject.file("keystore.properties")
+        if (f.exists()) f.inputStream().use { load(it) }
+    }
+    fun signingValue(propKey: String, envKey: String): String? =
+        (keystoreProps.getProperty(propKey) ?: System.getenv(envKey))?.takeIf { it.isNotBlank() }
+
+    val releaseStoreFile = signingValue("storeFile", "RELEASE_STORE_FILE")
+    val releaseStorePassword = signingValue("storePassword", "RELEASE_STORE_PASSWORD")
+    val releaseKeyAlias = signingValue("keyAlias", "RELEASE_KEY_ALIAS")
+    val releaseKeyPassword = signingValue("keyPassword", "RELEASE_KEY_PASSWORD")
+    val hasReleaseSigning = releaseStoreFile != null && releaseStorePassword != null &&
+        releaseKeyAlias != null && releaseKeyPassword != null
+
     signingConfigs {
-        // Signed with the local debug key so a release build is installable for testing.
-        // Replace this with a real upload key before anything goes to Play.
-        create("local") {
-            storeFile = file(System.getProperty("user.home") + "/.android/debug.keystore")
-            storePassword = "android"
-            keyAlias = "androiddebugkey"
-            keyPassword = "android"
+        if (hasReleaseSigning) {
+            create("release") {
+                storeFile = rootProject.file(releaseStoreFile!!)
+                storePassword = releaseStorePassword
+                keyAlias = releaseKeyAlias
+                keyPassword = releaseKeyPassword
+            }
         }
     }
 
@@ -33,7 +53,15 @@ android {
             // carries instrumentation that a release build does not.
             isMinifyEnabled = true
             isShrinkResources = true
-            signingConfig = signingConfigs.getByName("local")
+            if (hasReleaseSigning) {
+                signingConfig = signingConfigs.getByName("release")
+            } else {
+                logger.warn(
+                    "WARNING: no release signing config (keystore.properties or RELEASE_* " +
+                        "environment variables). The release APK will be UNSIGNED and cannot " +
+                        "be installed until it is signed. See RELEASING.md.",
+                )
+            }
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
         debug {
@@ -50,6 +78,7 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
     testOptions {
         unitTests.isReturnDefaultValues = true

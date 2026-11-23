@@ -6,6 +6,7 @@ import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothServerSocket
 import android.bluetooth.BluetoothSocket
 import android.util.Log
+import com.intercom.app.BuildConfig
 import com.intercom.app.protocol.Codec
 import com.intercom.app.protocol.Hello
 import com.intercom.app.protocol.Message
@@ -42,8 +43,8 @@ import java.util.concurrent.atomic.AtomicInteger
  * the undocumented reflection channel is the last attempt only, and the server socket is
  * always closed so the channel is not still held on the next run.
  *
- * When hosting, a TCP listener on [TCP_TEST_PORT] races alongside the RFCOMM accept so
- * the Mac test client can connect via `adb forward tcp:9333 tcp:9333`.
+ * In debug builds only, a loopback-only TCP listener on [TCP_TEST_PORT] races alongside
+ * the RFCOMM accept so the Mac test client can connect via `adb forward tcp:9333 tcp:9333`.
  */
 class RfcommLink(
     private val adapter: BluetoothAdapter,
@@ -70,8 +71,15 @@ class RfcommLink(
 
         private val BACKOFF_MS = longArrayOf(1000, 2000, 4000, 8000)
 
-        /** TCP port for Mac intercom testing via `adb forward tcp:9333 tcp:9333`. */
+        /** Debug-only TCP port for Mac intercom testing via `adb forward tcp:9333 tcp:9333`. */
         const val TCP_TEST_PORT = 9333
+
+        /**
+         * Where the test listener may bind: loopback in debug builds, nowhere otherwise.
+         * Pure so a test can pin the rule that release builds never open the port.
+         */
+        fun testListenerBindAddress(debugBuild: Boolean): java.net.InetAddress? =
+            if (debugBuild) java.net.InetAddress.getLoopbackAddress() else null
     }
 
     /** Transport-agnostic wrapper around a connected socket's streams. */
@@ -231,13 +239,19 @@ class RfcommLink(
             val ss = adapter.listenUsingRfcommWithServiceRecord(SERVICE_NAME, APP_UUID)
             serverSocket = ss
 
+            // Debug builds only, and loopback only (reachable through `adb forward`, not
+            // from the network). It used to bind every interface in release builds too,
+            // which left an unauthenticated way to inject audio into a call over Wi-Fi.
             var tss: ServerSocket? = null
-            try {
-                tss = ServerSocket(TCP_TEST_PORT)
-                tcpServerSocket = tss
-                Log.i(TAG, "listening on RFCOMM + TCP :$TCP_TEST_PORT")
-            } catch (e: IOException) {
-                Log.w(TAG, "TCP listen on :$TCP_TEST_PORT failed (RFCOMM only): ${e.message}")
+            val bindTo = testListenerBindAddress(BuildConfig.DEBUG)
+            if (bindTo != null) {
+                try {
+                    tss = ServerSocket(TCP_TEST_PORT, 1, bindTo)
+                    tcpServerSocket = tss
+                    Log.i(TAG, "listening on RFCOMM + TCP ${bindTo.hostAddress}:$TCP_TEST_PORT")
+                } catch (e: IOException) {
+                    Log.w(TAG, "TCP listen on :$TCP_TEST_PORT failed (RFCOMM only): ${e.message}")
+                }
             }
 
             val btJob = scope.launch {

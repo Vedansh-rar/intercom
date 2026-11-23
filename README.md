@@ -65,9 +65,9 @@ Pick what suits your helmet in **Settings → Microphone**:
 
 ## Known issues
 
-- **Noise suppression level stuck**: The denoiser works and does reduce wind/engine noise, but the Settings selector (Light / Medium / Strong) may not apply correctly on some devices — it stays on one preset regardless. This is a UI binding issue, not a DSP bug.
+- **Noise suppression presets**: fixed in code. The selector now offers Off / Light / Medium / Strong (Medium did not exist before, which is why the README and the app disagreed), each preset maps to distinct denoiser parameters (unit-tested), and re-enabling after Off no longer replays stale audio. Needs a ride to judge how the presets sound; see `docs/DEVICE_TEST_CHECKLIST.md`.
 
-- **Wi-Fi Direct joiner path**: The Wi-Fi Direct transport (longer range) works for hosting but the client/joiner side has not been road-tested on all devices.
+- **Wi-Fi Direct joiner path**: reviewed and fixed by reading (the joiner now binds the voice port so it can hear the host, retries the control connection instead of restarting discovery, uses the reported group-owner address, and stops re-issuing `connect()` over one in flight). The retry/pick/gate logic is unit-tested; the radio handshake itself has still **not** been run on two phones.
 
 ## How it works
 

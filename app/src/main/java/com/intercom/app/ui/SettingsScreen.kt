@@ -338,6 +338,8 @@ private fun noiseSubtitle(ns: NoiseSuppression): String = when (ns) {
         "but your buddy hears the bike."
     NoiseSuppression.Light -> "Town riding. Takes out the steady hiss and rumble without " +
         "touching the voice."
+    NoiseSuppression.Medium -> "Mixed roads. Stronger than Light, still natural; a good " +
+        "default when speeds vary."
     NoiseSuppression.Strong -> "Highway. Removes engine and wind roar; the voice sounds " +
         "slightly processed in exchange."
 }
