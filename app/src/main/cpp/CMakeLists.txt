@@ -54,6 +54,20 @@ target_include_directories(rnnoise_lib
     PUBLIC  ${rnnoise_SOURCE_DIR}/include
     PRIVATE ${rnnoise_SOURCE_DIR}/src
 )
+# RNNoise's FFT and pitch code is a copy of code that libopus also contains, under the same
+# global names (opus_fft_impl and others), so linking both into one library fails with
+# duplicate symbols. Give every RNNoise symbol except its public rnnoise_* API a private name.
+set(RNNOISE_PRIVATE_SYMBOLS
+    _celt_autocorr _celt_lpc celt_fir celt_iir celt_pitch_xcorr common
+    compute_band_corr compute_band_energy compute_dense compute_gru compute_rnn
+    interp_band_gain opus_fft_alloc opus_fft_alloc_arch_c opus_fft_alloc_twiddles
+    opus_fft_c opus_fft_free opus_fft_free_arch_c opus_fft_impl opus_ifft_c
+    pitch_downsample pitch_filter pitch_search remove_doubling)
+foreach(sym IN LISTS RNNOISE_PRIVATE_SYMBOLS)
+    string(REGEX REPLACE "^_" "" bare "${sym}")
+    target_compile_definitions(rnnoise_lib PRIVATE "${sym}=rnnoise_priv_${bare}")
+endforeach()
+
 # Third-party code: optimise it, and do not hold it to this project's warning level.
 target_compile_options(rnnoise_lib PRIVATE -O3 -w)
 # It is linked into a shared library, so its objects must be position independent.
