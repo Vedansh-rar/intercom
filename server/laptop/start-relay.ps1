@@ -30,7 +30,7 @@ if (-not (Test-Path (Join-Path $serverDir 'node_modules'))) {
 
 # Keep Windows awake while the relay runs (only for this process; nothing is changed permanently).
 Add-Type -Namespace Win -Name Power -MemberDefinition '[DllImport("kernel32.dll")] public static extern uint SetThreadExecutionState(uint f);'
-[void][Win.Power]::SetThreadExecutionState(0x80000001)  # ES_CONTINUOUS | ES_SYSTEM_REQUIRED
+[void][Win.Power]::SetThreadExecutionState([uint32]2147483649)  # ES_CONTINUOUS | ES_SYSTEM_REQUIRED (0x80000001; hex literals parse as negative Int32 in PowerShell)
 
 $env:PORT = "$port"; $env:HOST = '127.0.0.1'; $env:TRUST_PROXY = '1'
 $tmp = Join-Path $env:TEMP 'rider-relay'; New-Item -ItemType Directory -Force $tmp | Out-Null
@@ -70,5 +70,5 @@ try {
 }
 finally {
   foreach ($p in @($tunnel, $relay)) { if ($p -and -not $p.HasExited) { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue } }
-  [void][Win.Power]::SetThreadExecutionState(0x80000000)
+  [void][Win.Power]::SetThreadExecutionState([uint32]2147483648)
 }
