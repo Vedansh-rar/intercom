@@ -38,6 +38,13 @@ enum class Transport(val label: String) {
      * never moves a two-rider call onto it.
      */
     Nearby("Group (Nearby)"),
+
+    /**
+     * An internet ride through a relay server ([com.intercom.app.group.InternetLink]).
+     * Like [Nearby] it is used only by group rides, and the selector never moves a
+     * two-rider call onto it.
+     */
+    Internet("Internet"),
     ;
 
     companion object {

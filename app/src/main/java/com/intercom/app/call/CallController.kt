@@ -34,6 +34,8 @@ import com.intercom.app.floor.Vad
 import com.intercom.app.floor.VadEvent
 import com.intercom.app.group.GroupCall
 import com.intercom.app.group.GroupLink
+import com.intercom.app.relay.InternetRoom
+import com.intercom.app.relay.RelayUrl
 import com.intercom.app.location.AndroidLocationProvider
 import com.intercom.app.location.Geo
 import com.intercom.app.location.LocationState
@@ -362,10 +364,14 @@ class CallController(
         ) return
 
         if (!Permissions.hasMicrophone(context)) { fail(R.string.cc_err_mic_perm); return }
-        if (!Permissions.hasGroup(context)) { fail(R.string.cc_err_nearby_perm); return }
-        if (!GroupLink.isAvailable(context)) { fail(R.string.cc_err_play_services); return }
-
         val settings = prefs.current
+        // An internet ride needs neither the Nearby permissions nor Play services: it only
+        // needs the relay, which is checked below.
+        val internet = settings.internetRide
+        if (!internet) {
+            if (!Permissions.hasGroup(context)) { fail(R.string.cc_err_nearby_perm); return }
+            if (!GroupLink.isAvailable(context)) { fail(R.string.cc_err_play_services); return }
+        }
         terminal = false
         val code = RideCode.parseOrNull(settings.rideCode)
         if (code == null) {
@@ -373,6 +379,14 @@ class CallController(
             // trade off, and an open group would let anyone in range listen.
             fail(R.string.cc_err_group_no_code)
             return
+        }
+        var relay: String? = null
+        if (internet) {
+            relay = RelayUrl.parse(settings.relayUrl)
+            if (relay == null) { fail(R.string.cc_err_relay_url); return }
+            // The room id is derived from the code and visible to the relay, so a code a
+            // person could guess from it (6 digits) is not accepted.
+            if (!InternetRoom.codeAllowed(code)) { fail(R.string.cc_err_internet_code); return }
         }
         rideCode = code
         if (throttle.isLocked) { fail(R.string.cc_err_throttled, secondsLeft()); return }
@@ -406,15 +420,20 @@ class CallController(
             throttle = throttle,
             seenNonces = seenNonces,
             onChanged = { publishGroup() },
+            internetRelay = relay,
         )
         group = g
         g.node.positionsEnabled = false  // until the rider's setting says otherwise
-        newRideLocation(
-            group = true,
-            tracker = g.node.positions,
-            send = g.node::sendPosition,
-            onEnabled = { g.node.positionsEnabled = it },
-        )
+        // Positions stay on the phone-to-phone radios: an internet ride sends none and keeps
+        // none, even though the relay could not read them.
+        if (!internet) {
+            newRideLocation(
+                group = true,
+                tracker = g.node.positions,
+                send = g.node::sendPosition,
+                onEnabled = { g.node.positionsEnabled = it },
+            )
+        }
         player.source = g.mixer
         player.preferOboe = !settings.legacyAudioPath
         player.onStatus = ::onAudioStatus

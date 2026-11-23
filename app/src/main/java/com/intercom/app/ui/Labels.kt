@@ -67,6 +67,7 @@ import com.intercom.app.util.TransportPreference
     Transport.Bluetooth -> R.string.transport_bluetooth
     Transport.WifiDirect -> R.string.transport_wifi
     Transport.Nearby -> R.string.transport_nearby
+    Transport.Internet -> R.string.transport_internet
 }
 
 @StringRes fun LinkState.labelRes(): Int = when (this) {

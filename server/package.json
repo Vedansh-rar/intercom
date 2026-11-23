@@ -1,0 +1,17 @@
+{
+  "name": "rider-intercom-relay",
+  "version": "1.0.0",
+  "description": "Dumb relay for Rider Intercom internet rides: forwards opaque, end-to-end encrypted packets between riders in a room. It never sees audio, names, codes or positions.",
+  "license": "MIT",
+  "private": true,
+  "main": "relay.js",
+  "type": "commonjs",
+  "engines": { "node": ">=18" },
+  "scripts": {
+    "start": "node index.js",
+    "test": "node --test --test-timeout=30000 test/relay.test.js"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  }
+}

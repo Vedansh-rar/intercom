@@ -535,6 +535,10 @@ fun SettingsScreen(
             SecondaryButton(stringResource(R.string.set_run_setup), onRunSetup)
         }
 
+        SectionCard(title = stringResource(R.string.inet_title)) {
+            InternetRideSection(settings = settings, onChange = onChange)
+        }
+
         SectionCard(title = stringResource(R.string.upd_title)) {
             UpdateSection(
                 state = updateState,

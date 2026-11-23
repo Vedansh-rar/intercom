@@ -35,7 +35,7 @@ import androidx.compose.ui.res.stringResource
  * did; on, the Start button begins a group ride and the paired-phones list steps aside.
  */
 @Composable
-fun GroupRideCard(enabled: Boolean, onChange: (Boolean) -> Unit) {
+fun GroupRideCard(enabled: Boolean, onChange: (Boolean) -> Unit, internet: Boolean = false) {
     val groupRideDescription = stringResource(R.string.call_group_ride)
     BrandCard(Modifier.fillMaxWidth()) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -62,6 +62,12 @@ fun GroupRideCard(enabled: Boolean, onChange: (Boolean) -> Unit) {
                 stringResource(R.string.group_explain),
                 fontSize = 13.sp, color = Brand.TextDim, lineHeight = 18.sp,
             )
+            if (internet) {
+                Text(
+                    stringResource(R.string.group_internet_on),
+                    fontSize = 13.sp, color = LocalAccents.current.base, lineHeight = 18.sp,
+                )
+            }
         }
     }
 }

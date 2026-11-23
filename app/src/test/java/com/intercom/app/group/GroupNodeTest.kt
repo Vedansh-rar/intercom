@@ -336,4 +336,23 @@ class GroupNodeTest {
         net.n("A").mixer.take(out)
         assertEquals(3, net.n("A").codecs.size)
     }
+
+    // ---- full mesh (internet rides) ------------------------------------------------
+
+    @Test fun withRelayingOffAFullMeshSendsEachMessageOnlyOnce() {
+        val net = SimNet()
+        listOf("A", "B", "C").forEachIndexed { i, l -> net.add(l, 1000 + i) }
+        net.link("A", "B"); net.link("A", "C"); net.link("B", "C")
+        net.nodes.values.forEach { it.node.relayEnabled = false }
+        net.n("A").speak(10)
+        net.pump()
+        assertHeard(1000, net.n("B").hear())
+        assertHeard(1000, net.n("C").hear())
+        assertEquals(0L, net.n("B").node.relayed)
+        assertEquals(0L, net.n("C").node.relayed)
+        // Each of the author's sends reaches exactly one of the two others, once: no copies.
+        assertEquals(net.n("A").sent, net.n("B").received + net.n("C").received)
+        assertEquals(net.n("B").received, net.n("C").received)
+        assertEquals(0, net.n("A").received)
+    }
 }

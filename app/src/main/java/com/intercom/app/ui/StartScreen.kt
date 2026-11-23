@@ -494,7 +494,7 @@ private fun StartScreenContent(
         // ---- group ride opt-in --------------------------------------------------
         Spacer(Modifier.height(14.dp))
         Box(Modifier.padding(horizontal = 16.dp)) {
-            GroupRideCard(enabled = group, onChange = onGroupRide)
+            GroupRideCard(enabled = group, onChange = onGroupRide, internet = settings.internetRide)
         }
 
         // ---- the ride code ------------------------------------------------------

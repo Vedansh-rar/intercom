@@ -310,8 +310,13 @@ class MainActivity : ComponentActivity() {
      * radio permissions a convoy scan wants on Android 12 and 12L, asked for here.
      */
     private fun startGroupCall(priority: Int) {
-        if (!Permissions.hasGroup(this)) {
-            askPermissions.launch((Permissions.required().toList() + Permissions.groupExtras()).distinct().toTypedArray())
+        // An internet ride has no convoy scan, so it does not need the extra location grant
+        // the over-the-air group asks for on Android 12 and 12L.
+        val internet = prefs.current.internetRide
+        val haveAll = if (internet) Permissions.allGranted(this) else Permissions.hasGroup(this)
+        if (!haveAll) {
+            val extras = if (internet) emptyList() else Permissions.groupExtras().toList()
+            askPermissions.launch((Permissions.required().toList() + extras).distinct().toTypedArray())
             return
         }
         IntercomService.startGroupCall(this, priority)

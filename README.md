@@ -85,6 +85,18 @@ Settings > Share log saves the recent app log with positions, ride codes, names 
 Bluetooth addresses removed and opens the share sheet; nothing is uploaded. After a call a
 summary shows duration, link quality and radio switches. It is kept in memory only.
 
+### Internet ride (optional, for city and plains riding)
+Bluetooth and Wi-Fi Direct reach tens of metres, and a group ride a few hundred along a
+convoy. Where there is phone signal you can ride further apart over mobile data instead:
+Settings > Internet ride, enter the address of a relay server, switch it on, and start a group
+ride with a five-word code. The relay is a small Node server in `server/` that **you run**
+(`server/README.md` has the steps for Fly.io, Render or a VPS); the app has no built-in server
+and sends nothing anywhere until you set one. It forwards packets between riders and cannot
+read them: every rider pair runs the ride-code handshake through it and encrypts with AES-GCM,
+exactly as on the other radios. It does not work without signal, and it uses about 16 MB of
+mobile data per hour of talking for each rider listening. Rider positions and distance are not
+sent on internet rides.
+
 ### Updates (optional)
 Settings > Updates checks GitHub Releases for a newer version, but only when you tap
 **Check for updates** (or switch on the once-a-day check, which is off by default and only
@@ -130,11 +142,13 @@ are refused while a call is running, because installing ends the call.
 ## Privacy and permissions
 
 - No analytics, no accounts, no ads, no tracking. Voice and positions travel only phone to phone.
-- **The only network use is the optional update check** (Settings > Updates): HTTPS to `api.github.com` and GitHub's download hosts, nothing else, never at launch unless you switched on the daily check. A GitHub request carries what any web request does, such as your IP address; the app sends no identifier and no settings. Redirects to any other host are refused.
+- **There are two optional network uses, both off until you switch them on.** (1) The update check (Settings > Updates): HTTPS to `api.github.com` and GitHub's download hosts, nothing else, never at launch unless you switched on the daily check. (2) Internet rides (Settings > Internet ride): a TLS WebSocket to the relay address you entered, only while an internet ride is running. Each request carries what any web request does, such as your IP address; the app sends no identifier and no settings, and redirects to other hosts are refused. The relay's owner can see your IP address, when you talk and how much, but not the voice, names or positions (end-to-end encrypted). The room it sees is a slow hash of your ride code, so use a five-word code: the app refuses 6-digit numbers for internet rides.
 - Microphone: your voice. Bluetooth and nearby devices: finding and connecting to your buddy. Notifications: the ongoing-call notification. Location (only if you switch on distance): the GPS fix shared with riders in your call. Wi-Fi state and nearby Wi-Fi devices: Wi-Fi Direct.
 - **Install unknown apps** (`REQUEST_INSTALL_PACKAGES`): used only to hand a downloaded and verified update to the system installer. Android asks you to allow it for this app the first time; you can switch it off again afterwards.
 
 ## Known issues
+
+- **Internet rides have not been run on real phones or against a deployed relay.** The relay server is tested (16 tests: rooms, routing, limits, rate limits, ping timeouts) and the app's internet link is tested against an in-memory copy of it (handshake, wrong code, encryption, reconnect, refusal), but real mobile networks are not: carrier NAT, handovers, how long a reconnect takes after a tunnel, battery and data use, and how audio sounds with 100 to 300 ms of latency. Latency is higher than over radio, and the app does not measure or adapt to it. Everything is in the Phase 10 section of `docs/DEVICE_TEST_CHECKLIST.md`. There is no default relay: you have to host one.
 
 - **The update checksum is not a signature.** It is published next to the APK on the same release, so it catches a damaged or truncated download, but anyone who could edit the release could change both files. The protection against a swapped APK is Android's own rule that an update must be signed with the same key as the installed app; the app also checks this before opening the installer so you get a clear message. If the signing key ever changes (key rotation), the in-app update will refuse and a manual reinstall is needed. None of this has been run against a real release on a phone; see the Phase 9 section of `docs/DEVICE_TEST_CHECKLIST.md`. The installed build has `versionCode` 1, so the first release must use a higher one (see `RELEASING.md`).
 

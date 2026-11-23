@@ -93,6 +93,6 @@ class StringResourcesTest {
     private val ALLOWED_SAME = setOf(
         "app_name_header", "code_example", "oem_step_line", "hfp_device_value", "hfp_device_name_or_address",
         "set_hz", "set_db", "transport_wifi", "call_rtt_ms", "sos_label",
-        "lang_english", "sum_percent", "sum_switch_line", "upd_size_mb",
+        "lang_english", "sum_percent", "sum_switch_line", "upd_size_mb", "inet_relay_hint",
     )
 }

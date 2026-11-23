@@ -70,7 +70,7 @@ class GroupLink(
     private val code: RideCode,
     private val throttle: AuthThrottle = AuthThrottle(),
     private val seenNonces: NonceCache = NonceCache(),
-) : PeerLink, MeshPort {
+) : GroupTransport {
 
     interface Listener {
         /** A decrypted frame from an authenticated neighbour. Called on the receive thread. */
@@ -86,7 +86,7 @@ class GroupLink(
         fun onWrongCode()
     }
 
-    @Volatile var listener: Listener? = null
+    @Volatile override var listener: Listener? = null
 
     private val appContext = context.applicationContext
     private val client: ConnectionsClient = Nearby.getConnectionsClient(appContext)

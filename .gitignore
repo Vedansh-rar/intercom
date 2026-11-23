@@ -48,3 +48,5 @@ secrets.local.md
 id_rsa*
 id_ed25519*
 secrets/
+
+server/node_modules/

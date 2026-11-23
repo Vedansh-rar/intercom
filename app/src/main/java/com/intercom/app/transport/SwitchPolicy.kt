@@ -154,7 +154,7 @@ class SwitchPolicy(
     /** With two transports "the next one" is simply the other one. */
     private fun other(t: Transport): Transport = when (t) {
         Transport.Bluetooth -> Transport.WifiDirect
-        Transport.WifiDirect, Transport.Nearby -> Transport.Bluetooth
+        Transport.WifiDirect, Transport.Nearby, Transport.Internet -> Transport.Bluetooth
     }
 
     private companion object { const val NEVER = Long.MIN_VALUE }

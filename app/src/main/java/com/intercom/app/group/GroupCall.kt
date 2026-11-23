@@ -11,6 +11,8 @@ import com.intercom.app.floor.Vad
 import com.intercom.app.floor.VadEvent
 import com.intercom.app.media.FocusManager
 import com.intercom.app.protocol.Hello
+import com.intercom.app.relay.OkHttpRelayConnector
+import com.intercom.app.relay.RelayUrl
 import com.intercom.app.security.AuthThrottle
 import com.intercom.app.security.NonceCache
 import com.intercom.app.security.RideCode
@@ -41,6 +43,8 @@ class GroupCall(
     throttle: AuthThrottle,
     seenNonces: NonceCache,
     private val onChanged: () -> Unit,
+    /** `wss://` relay base for an internet ride; null for the over-the-air group. */
+    private val internetRelay: String? = null,
 ) {
     val selfId: Int = SenderId.random()
     private val sessionId = Hello.newSessionId()
@@ -48,14 +52,28 @@ class GroupCall(
 
     private var nodeRef: GroupNode? = null
 
-    val link = GroupLink(context, selfName, selfId, sessionId, code, throttle, seenNonces)
+    val link: GroupTransport = if (internetRelay != null) {
+        InternetLink(
+            sessionId = sessionId,
+            code = code,
+            connectorFor = { room -> OkHttpRelayConnector(RelayUrl.endpoint(internetRelay, room)) },
+            throttle = throttle,
+            seenNonces = seenNonces,
+        )
+    } else {
+        GroupLink(context, selfName, selfId, sessionId, code, throttle, seenNonces)
+    }
 
     val mixer = GroupMixer(
         newDecoder = ::newDecoder,
         duckFactor = { id -> nodeRef?.floor?.duckFactor(id) ?: 1f },
     )
 
-    val node = GroupNode(selfId, selfName, priority, link, mixer).also { nodeRef = it }
+    val node = GroupNode(selfId, selfName, priority, link, mixer).also {
+        nodeRef = it
+        // Over the internet every rider already reaches every other directly.
+        it.relayEnabled = internetRelay == null
+    }
 
     val linkState: StateFlow<LinkState> get() = link.state
     val linkStatus: StateFlow<String> get() = link.status

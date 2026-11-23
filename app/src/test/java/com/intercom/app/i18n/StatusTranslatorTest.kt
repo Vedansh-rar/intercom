@@ -73,6 +73,7 @@ class StatusTranslatorTest {
         "transport/WifiDirectLink.kt",
         "transport/LinkSelector.kt",
         "group/GroupLink.kt",
+        "group/InternetLink.kt",
         "audio/MicCapture.kt",
         "audio/VoicePlayer.kt",
     )

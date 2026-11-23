@@ -109,6 +109,10 @@ data class Settings(
     val highContrast: Boolean = false,
     /** Opt-in: look for a newer release once a day when the app opens. Off by default. */
     val autoUpdateCheck: Boolean = false,
+    /** Group rides go through a relay over mobile data instead of Nearby. Off by default. */
+    val internetRide: Boolean = false,
+    /** The relay's `wss://` address. Empty until the rider sets one; the app has no default server. */
+    val relayUrl: String = "",
     /** Larger buttons with more space between them, for riding gloves. */
     val largeButtons: Boolean = false,
 )
@@ -181,6 +185,8 @@ class Prefs(context: Context) {
         language = AppLanguage.parse(sp.getString(K_LANGUAGE, null)),
         highContrast = sp.getBoolean(K_HIGH_CONTRAST, false),
         autoUpdateCheck = sp.getBoolean(K_AUTO_UPDATE, false),
+        internetRide = sp.getBoolean(K_INTERNET_RIDE, false),
+        relayUrl = sp.getString(K_RELAY_URL, "") ?: "",
         largeButtons = sp.getBoolean(K_LARGE_BUTTONS, false),
     )
 
@@ -226,6 +232,8 @@ class Prefs(context: Context) {
             putString(K_LANGUAGE, next.language.name)
             putBoolean(K_HIGH_CONTRAST, next.highContrast)
             putBoolean(K_AUTO_UPDATE, next.autoUpdateCheck)
+            putBoolean(K_INTERNET_RIDE, next.internetRide)
+            putString(K_RELAY_URL, next.relayUrl)
             putBoolean(K_LARGE_BUTTONS, next.largeButtons)
         }.apply()
         secrets.edit().putString(K_RIDE_CODE, next.rideCode).apply()
@@ -267,6 +275,8 @@ class Prefs(context: Context) {
         private const val K_LARGE_BUTTONS = "large_buttons"
         private const val K_ONBOARDED = "onboarded"
         private const val K_AUTO_UPDATE = "auto_update_check"
+        private const val K_INTERNET_RIDE = "internet_ride"
+        private const val K_RELAY_URL = "relay_url"
         private const val K_LAST_UPDATE_CHECK = "last_update_check"
         private const val K_BTN_SINGLE = "btn_single"
         const val K_BTN_DOUBLE = "btn_double"

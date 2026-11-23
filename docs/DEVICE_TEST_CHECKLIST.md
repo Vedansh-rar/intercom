@@ -501,3 +501,37 @@ higher `versionCode` and a tag such as `v2.0.0`, and install the first.
 ### Known gaps to confirm
 - [ ] Signing-key rotation with a lineage is not handled: the app refuses such an update. Decide if that is acceptable.
 - [ ] Sideloaded updates are not shown in Play Protect prompts consistently across brands; note the prompts on Xiaomi, Samsung and Oppo.
+
+## Phase 10: internet rides through a relay
+
+Needs a deployed relay (`server/README.md`) reachable at a `wss://` address, and two or three
+phones on mobile data, ideally on different carriers and far apart.
+
+### Setup and refusals
+- [ ] Settings > Internet ride: typing `ws://...`, a path, or an address with spaces shows the red message; a valid `wss://host` clears it.
+- [ ] Internet on with no address: starting a group ride says to set one. Internet on with a 6-digit code: refused, asks for a word code.
+- [ ] Hindi: all of the Internet ride card and the messages are in Hindi and fit at large font size.
+- [ ] With internet off (default) a group ride behaves exactly as before and makes no network request (check with a packet capture or `dumpsys netstats`).
+
+### Two and three riders
+- [ ] Two phones, same word code, internet on, Wi-Fi off, different cities: connect within a few seconds; both hear each other; floor and mute work.
+- [ ] Three or more phones: everyone hears the one who has the floor; priority takes the floor from a lower one.
+- [ ] Wrong code on one phone: it never connects, the others are unaffected, the wrong-code message shows.
+- [ ] A rider with the right code joins late: gets in and is heard.
+- [ ] Latency: talk and listen; note how it feels on 4G and on 5G. Anything over about 400 ms makes turn-taking awkward; write down what you see.
+- [ ] SOS sent from one phone reaches the others.
+
+### Mobile data in real life
+- [ ] Ride through a tunnel or switch airplane mode on for 10 s and off: the status says it lost the connection, then reconnects and the pair re-handshakes by itself; audio resumes with no restart.
+- [ ] Switch from Wi-Fi to mobile data (and back) during a ride: reconnects.
+- [ ] Lock the phone and put it in a pocket for 30 minutes: the ride is still connected (foreground service, battery optimisation exempt).
+- [ ] Measure data use over an hour with one rider mostly talking: expect roughly 16 MB per listening rider per hour of talking.
+- [ ] Battery drain per hour compared with a Bluetooth ride.
+
+### Relay and privacy
+- [ ] Relay unreachable or wrong address: "Lost the connection - reconnecting" with growing delays, never a crash; the ride resumes when the relay is back.
+- [ ] 13th rider: refused with "The room is full".
+- [ ] Look at the relay's logs: no packet contents, ride codes or names (it logs one startup line only).
+- [ ] Capture the traffic to the relay: only TLS to your host; no other host is contacted.
+- [ ] Positions: with Share location on, an internet ride shows no distances and sends nothing.
+- [ ] Known gaps to decide on: there is no latency measurement or adaptive bitrate; no relay discovery; a relay operator can test short ride codes offline.

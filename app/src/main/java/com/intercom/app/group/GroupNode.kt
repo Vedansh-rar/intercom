@@ -64,6 +64,14 @@ class GroupNode(
     @Volatile var positionsEnabled: Boolean = true
 
     /**
+     * Whether this phone forwards other riders' messages. On for the over-the-air mesh,
+     * where a rider may only reach the one behind through a neighbour. Off for an internet
+     * ride: the relay already connects every rider to every other, so a forward would reach
+     * riders who already have the message and only spend the rider's mobile data.
+     */
+    @Volatile var relayEnabled: Boolean = true
+
+    /**
      * An SOS from another rider: their sender ID, name if known, and the alert. Called for
      * every copy that reaches this phone (the mesh drops exact duplicates, but a resend is a
      * new message), so the receiver deduplicates.
@@ -94,7 +102,7 @@ class GroupNode(
         else dropped++
 
         val relay = decision.relay
-        if (relay != null) {
+        if (relay != null && relayEnabled) {
             val bytes = relay.toBytes()
             for (ep in port.readyEndpoints()) {
                 if (ep == from) continue
