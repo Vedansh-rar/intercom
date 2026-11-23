@@ -116,6 +116,9 @@ dependencies {
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.lifecycle.service)
     implementation(libs.androidx.activity.compose)
+    // Play services pulls in an old Fragment; registerForActivityResult needs 1.3.0 or newer
+    // and release lint (lintVitalRelease) fails the build without it.
+    implementation(libs.androidx.fragment)
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.ui)
     implementation(libs.androidx.ui.graphics)
