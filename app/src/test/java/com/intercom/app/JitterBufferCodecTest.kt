@@ -57,12 +57,14 @@ class JitterBufferCodecTest {
 
     @Test
     fun `payloads that arrive out of order are still played in order`() {
-        val jb = JitterBuffer(targetFrames = 2).also { it.decoder = FakeDecoder() }
-        jb.putPayload(1, payload(11))
+        val jb = JitterBuffer(targetFrames = 3).also { it.decoder = FakeDecoder() }
         jb.putPayload(0, payload(10))
+        jb.putPayload(2, payload(12))
+        jb.putPayload(1, payload(11))
         val out = ShortArray(n)
         jb.take(out); assertEquals(10, out[0].toInt())
         jb.take(out); assertEquals(11, out[0].toInt())
+        jb.take(out); assertEquals(12, out[0].toInt())
     }
 
     @Test
