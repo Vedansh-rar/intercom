@@ -26,7 +26,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
 import com.intercom.app.audio.MicSource
+import com.intercom.app.audio.NoiseEngine
 import com.intercom.app.audio.NoiseSuppression
+import com.intercom.app.audio.WindCutFilter
 import com.intercom.app.floor.VadSensitivity
 import com.intercom.app.location.DistanceFormat
 import com.intercom.app.location.DistanceUnit
@@ -130,13 +132,67 @@ fun SettingsScreen(
                 style = MaterialTheme.typography.bodyMedium,
                 color = IntercomColors.dim,
             )
-            NoiseSuppression.entries.forEach { ns ->
-                ChoiceRow(
-                    selected = settings.noiseSuppression == ns,
-                    title = ns.label,
-                    subtitle = noiseSubtitle(ns),
-                    onClick = { onChange { it.copy(noiseSuppression = ns) } },
+            Text("Noise reduction engine", style = MaterialTheme.typography.bodyLarge)
+            ChoiceRow(
+                selected = settings.noiseEngine == NoiseEngine.Standard,
+                title = "Standard (recommended)",
+                subtitle = "Light on the battery and the processor, with a strength you choose. " +
+                    "Good for steady noise such as engine hum and road roar.",
+                onClick = { onChange { it.copy(noiseEngine = NoiseEngine.Standard) } },
+            )
+            ChoiceRow(
+                selected = settings.noiseEngine == NoiseEngine.Ai,
+                title = "AI noise reduction",
+                subtitle = "A small neural network (RNNoise) that copes better with gusty, " +
+                    "uneven noise. It has no strength setting, uses noticeably more of the " +
+                    "processor and battery, and adds about 11 ms of delay. If your phone cannot " +
+                    "keep up, the app switches back to Standard by itself.",
+                onClick = { onChange { it.copy(noiseEngine = NoiseEngine.Ai) } },
+            )
+            if (settings.noiseEngine == NoiseEngine.Ai) {
+                ToggleRow(
+                    checked = settings.noiseSuppression != NoiseSuppression.Off,
+                    title = "AI noise reduction on",
+                    subtitle = "Switch off to send your voice with only the wind low-cut and the " +
+                        "noise gate.",
+                    onChange = { on ->
+                        onChange {
+                            it.copy(
+                                noiseSuppression = if (!on) NoiseSuppression.Off
+                                else if (it.noiseSuppression == NoiseSuppression.Off) NoiseSuppression.Light
+                                else it.noiseSuppression,
+                            )
+                        }
+                    },
                 )
+            } else {
+                ToggleRow(
+                    checked = settings.autoNoise,
+                    title = "Auto: choose the strength from my speed",
+                    subtitle = "Light in town, Medium on faster roads, Strong on the highway, " +
+                        "switching only after the speed has held for about 10 seconds. Needs " +
+                        "\"Share my location\" below; until there is a GPS fix it uses " +
+                        "the strength you picked, and it keeps its last choice if the fix is " +
+                        "lost. Picking a strength yourself turns Auto off.",
+                    onChange = { on ->
+                        onChange {
+                            it.copy(
+                                autoNoise = on,
+                                noiseSuppression =
+                                    if (on && it.noiseSuppression == NoiseSuppression.Off) NoiseSuppression.Light
+                                    else it.noiseSuppression,
+                            )
+                        }
+                    },
+                )
+                NoiseSuppression.entries.forEach { ns ->
+                    ChoiceRow(
+                        selected = settings.noiseSuppression == ns,
+                        title = ns.label,
+                        subtitle = noiseSubtitle(ns),
+                        onClick = { onChange { it.copy(noiseSuppression = ns, autoNoise = false) } },
+                    )
+                }
             }
             if (platformEffects.isNotEmpty()) {
                 Text(
@@ -146,6 +202,55 @@ fun SettingsScreen(
                     color = IntercomColors.dim,
                 )
             }
+        }
+
+        SectionCard(title = "Wind low-cut") {
+            Text(
+                "Removes the low thump of wind and engine from the voice you send. Raise it " +
+                    "if the highway still booms in your buddy's ears; lower it if your voice " +
+                    "sounds thin.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = IntercomColors.dim,
+            )
+            Text(
+                if (settings.windCutHz == 0) "Off" else "${settings.windCutHz} Hz",
+                style = MaterialTheme.typography.bodyLarge,
+            )
+            Slider(
+                value = if (settings.windCutHz == 0) 70f else settings.windCutHz.toFloat(),
+                onValueChange = { v ->
+                    val hz = (v / WindCutFilter.STEP_HZ).roundToInt() * WindCutFilter.STEP_HZ
+                    onChange { it.copy(windCutHz = if (hz < WindCutFilter.MIN_HZ) 0 else hz) }
+                },
+                valueRange = 70f..WindCutFilter.MAX_HZ.toFloat(),
+                steps = (WindCutFilter.MAX_HZ - 70) / WindCutFilter.STEP_HZ - 1,
+                colors = sliderColors(),
+            )
+            if (settings.windCutHz != 0) {
+                ToggleRow(
+                    checked = settings.windCutSteep,
+                    title = "Steeper slope",
+                    subtitle = "Cuts twice as sharply below the frequency. More wind removed, " +
+                        "slightly more change to the sound near the cutoff.",
+                    onChange = { v -> onChange { it.copy(windCutSteep = v) } },
+                )
+            }
+            if (settings.windCutHz != WindCutFilter.DEFAULT_HZ || settings.windCutSteep) {
+                SecondaryButton("Reset to ${WindCutFilter.DEFAULT_HZ} Hz") {
+                    onChange { it.copy(windCutHz = WindCutFilter.DEFAULT_HZ, windCutSteep = false) }
+                }
+            }
+        }
+
+        SectionCard(title = "Even out my voice") {
+            ToggleRow(
+                checked = settings.agc,
+                title = "Even out my voice level",
+                subtitle = "Slowly raises your voice when you talk quietly or the mic has slipped, " +
+                    "lowers it when you shout, and stops it ever clipping. It changes over a " +
+                    "few seconds, never between words, and it leaves silence alone. Off by default.",
+                onChange = { v -> onChange { it.copy(agc = v) } },
+            )
         }
 
         SectionCard(title = "Voice detection") {
@@ -463,7 +568,7 @@ private fun micSubtitle(src: MicSource): String = when (src) {
 }
 
 private fun noiseSubtitle(ns: NoiseSuppression): String = when (ns) {
-    NoiseSuppression.Off -> "Only the 150 Hz high-pass and noise gate. Most natural voice, " +
+    NoiseSuppression.Off -> "Only the wind low-cut and the noise gate. Most natural voice, " +
         "but your buddy hears the bike."
     NoiseSuppression.Light -> "Town riding. Takes out the steady hiss and rumble without " +
         "touching the voice."

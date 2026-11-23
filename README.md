@@ -76,7 +76,7 @@ Pick what suits your helmet in **Settings → Microphone**:
 - Ride code and encryption: both phones share a passphrase (4-8 words, or a 6-digit number) that is never sent over the air. After connecting they prove they know it with a challenge-response, then every voice and control frame is encrypted and authenticated with AES-256-GCM. A wrong code closes the link with "Wrong ride code"; repeated wrong codes are throttled. An older buddy without encryption is refused unless you allow it in Settings, and the call screen then shows a "NOT ENCRYPTED" warning
 - Group rides (opt-in): Nearby Connections (`P2P_CLUSTER`) carries a convoy. Every neighbour is authenticated with the same ride-code handshake before any audio is accepted. Frames are relayed up to 3 hops with duplicate suppression, each rider is decoded separately and mixed with soft clipping (at most 3 voices at once), and the floor gives the host priority while other speakers are ducked rather than cut off
 - Rider distance (opt-in): GPS position shared only phone to phone, encrypted, with a smoothed distance, direction arrow, ahead/behind, staleness and an optional falling-behind beep
-- Spectral noise suppression — cleans wind and engine noise from your voice
+- Spectral noise suppression (Off / Light / Medium / Strong) — cleans wind and engine noise from your voice. Optional "AI noise reduction" (RNNoise) that falls back to the spectral one by itself if the phone is too slow, an optional Auto mode that picks the strength from GPS speed, an adjustable wind low-cut (80-400 Hz, or off; default 150 Hz) and an optional slow AGC with a limiter
 - Foreground service — call stays alive with the screen off
 - Headset button control (play/pause to cut in)
 - RTT measurement and clock sync between phones
@@ -101,6 +101,8 @@ Pick what suits your helmet in **Settings → Microphone**:
 - **Rider distance has not been run on real phones.** The maths, send-rate policy, staleness, smoothing and message handling are unit-tested, including positions relayed across a simulated group. The GPS itself, the permission prompts on each Android version, the location foreground-service type, battery cost and whether the numbers match the road are in `docs/DEVICE_TEST_CHECKLIST.md`. Known limits: the ahead/behind and arrow need you to be moving (a stationary GPS has no heading); GPS accuracy is tens of metres in cities and under trees, and a distance under about 20 m is shown as `< 20 m` on purpose; a rider who shares sees distances only if they share too.
 
 - **Group mode has not been run on real phones.** It is unit-tested (relay and de-duplication rules across simulated multi-phone meshes, per-rider mixing, floor and priority, the secure channel handshake), but nothing here proves how Nearby Connections behaves with no internet, whether a hop adds more delay than the 200 ms jitter budget allows, how a mid-range phone copes with three Opus decoders, or whether discovery works with the `neverForLocation` Bluetooth-scan flag. Each of these is a line in `docs/DEVICE_TEST_CHECKLIST.md`. The age of a relayed audio frame is estimated (time held at each relay plus 15 ms per hop) because the phones' clocks are not synchronised.
+
+- **Audio quality (wind and noise) has not been heard on a bike.** The wind low-cut, AGC, limiter, cost monitor and Auto policy are unit-tested on synthetic signals, and the RNNoise wrapper was checked on a desktop (noise-only input down 56 dB, voice delayed 11 ms, 0.3 ms per 20 ms frame, about 1.6% of one core). **The cost on a phone has not been measured**: a mid-range phone is guessed to be 4 to 8 times slower, which is why the spectral denoiser stays the default, the AI option is clearly labelled as heavier, and the app drops back to the spectral denoiser on its own if the AI one averages over 8 ms per 20 ms frame. RNNoise has no strength setting, so Light/Medium/Strong do not apply to it. Whether it sounds better than the spectral denoiser in real wind is the first line of the Phase 6 section in `docs/DEVICE_TEST_CHECKLIST.md`. RNNoise is BSD-licensed; see `docs/THIRD_PARTY_NOTICES.md`.
 
 - **Noise suppression presets**: fixed in code. The selector now offers Off / Light / Medium / Strong (Medium did not exist before, which is why the README and the app disagreed), each preset maps to distinct denoiser parameters (unit-tested), and re-enabling after Off no longer replays stale audio. Needs a ride to judge how the presets sound; see `docs/DEVICE_TEST_CHECKLIST.md`.
 
@@ -142,7 +144,7 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 
 ```
 app/src/main/java/com/intercom/app/
-├── audio/          # ADPCM codec, mic capture, jitter buffer, denoiser, player
+├── audio/          # codecs, mic capture, wind low-cut, spectral and AI denoisers, AGC, jitter buffer, player
 ├── call/           # CallController, IntercomService (foreground service)
 ├── discovery/      # Host beacon & scanner (BLE nearby discovery)
 ├── floor/          # Voice activity detector, half-duplex floor arbiter

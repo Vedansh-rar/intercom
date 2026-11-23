@@ -30,6 +30,14 @@ object NativeBridge {
     @JvmStatic external fun opusDecoderDecode(handle: Long, payload: ByteArray?, fec: Boolean, out: ShortArray, frameSamples: Int): Int
     @JvmStatic external fun opusDecoderDestroy(handle: Long)
 
+    // ---- RNNoise ("AI noise reduction"), 16 kHz in and out
+    @JvmStatic external fun rnnoiseCreate(): Long
+
+    /** Denoises [count] samples (a multiple of 160) in place. False leaves them untouched. */
+    @JvmStatic external fun rnnoiseProcess(handle: Long, pcm: ShortArray, count: Int): Boolean
+    @JvmStatic external fun rnnoiseReset(handle: Long)
+    @JvmStatic external fun rnnoiseDestroy(handle: Long)
+
     // ---- Oboe engine (one instance per direction)
     @JvmStatic external fun engineCreate(): Long
     @JvmStatic external fun engineDestroy(handle: Long)

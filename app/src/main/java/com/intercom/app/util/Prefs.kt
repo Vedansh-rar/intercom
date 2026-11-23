@@ -3,7 +3,9 @@ package com.intercom.app.util
 import android.content.Context
 import android.content.SharedPreferences
 import com.intercom.app.audio.MicSource
+import com.intercom.app.audio.NoiseEngine
 import com.intercom.app.audio.NoiseSuppression
+import com.intercom.app.audio.WindCutFilter
 import com.intercom.app.floor.VadSensitivity
 import com.intercom.app.location.DistanceUnit
 import java.util.Locale
@@ -34,6 +36,22 @@ data class Settings(
     val talkMode: TalkMode = TalkMode.Open,
     val micSource: MicSource = MicSource.Phone,
     val noiseSuppression: NoiseSuppression = NoiseSuppression.Light,
+    /**
+     * Which denoiser does the work. [NoiseEngine.Standard] is the default; [NoiseEngine.Ai] is
+     * RNNoise, which has no strength setting of its own (Off still turns it off).
+     */
+    val noiseEngine: NoiseEngine = NoiseEngine.Standard,
+    /**
+     * Pick Light/Medium/Strong from GPS speed while riding. Needs "Share my location"; with no
+     * fix the preset above is used. Choosing a preset by hand turns this off.
+     */
+    val autoNoise: Boolean = false,
+    /** Wind low-cut frequency in Hz; 0 turns it off. The default is the long-standing 150 Hz. */
+    val windCutHz: Int = WindCutFilter.DEFAULT_HZ,
+    /** Fourth-order (steeper) wind low-cut instead of second-order. */
+    val windCutSteep: Boolean = false,
+    /** Slow automatic gain control and limiter on the voice you send. Off by default. */
+    val agc: Boolean = false,
     val vadSensitivity: VadSensitivity = VadSensitivity.Medium,
     /** Voice level in dB, -12..+12, applied on top of the stream. */
     val voiceLevelDb: Int = 0,
@@ -99,6 +117,11 @@ class Prefs(context: Context) {
         talkMode = enumOf(sp.getString(K_TALK, null), TalkMode.Open),
         micSource = enumOf(sp.getString(K_MIC, null), MicSource.Phone),
         noiseSuppression = enumOf(sp.getString(K_NS, null), NoiseSuppression.Light),
+        noiseEngine = enumOf(sp.getString(K_NOISE_ENGINE, null), NoiseEngine.Standard),
+        autoNoise = sp.getBoolean(K_AUTO_NOISE, false),
+        windCutHz = WindCutFilter.clampCutoff(sp.getInt(K_WIND_CUT, WindCutFilter.DEFAULT_HZ)),
+        windCutSteep = sp.getBoolean(K_WIND_STEEP, false),
+        agc = sp.getBoolean(K_AGC, false),
         vadSensitivity = enumOf(sp.getString(K_VAD, null), VadSensitivity.Medium),
         voiceLevelDb = sp.getInt(K_VOICE_DB, 0),
         beepWhenMuted = sp.getBoolean(K_BEEP, true),
@@ -131,6 +154,11 @@ class Prefs(context: Context) {
             putString(K_TALK, next.talkMode.name)
             putString(K_MIC, next.micSource.name)
             putString(K_NS, next.noiseSuppression.name)
+            putString(K_NOISE_ENGINE, next.noiseEngine.name)
+            putBoolean(K_AUTO_NOISE, next.autoNoise)
+            putInt(K_WIND_CUT, next.windCutHz)
+            putBoolean(K_WIND_STEEP, next.windCutSteep)
+            putBoolean(K_AGC, next.agc)
             putString(K_VAD, next.vadSensitivity.name)
             putInt(K_VOICE_DB, next.voiceLevelDb)
             putBoolean(K_BEEP, next.beepWhenMuted)
@@ -162,6 +190,11 @@ class Prefs(context: Context) {
         const val K_TALK = "talk_mode"
         const val K_MIC = "mic_source"
         const val K_NS = "noise_suppression"
+        const val K_NOISE_ENGINE = "noise_engine"
+        const val K_AUTO_NOISE = "auto_noise"
+        const val K_WIND_CUT = "wind_cut_hz"
+        const val K_WIND_STEEP = "wind_cut_steep"
+        const val K_AGC = "agc"
         const val K_VAD = "vad"
         const val K_VOICE_DB = "voice_db"
         const val K_BEEP = "beep"

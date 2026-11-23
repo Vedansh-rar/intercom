@@ -46,6 +46,8 @@ class MicCapture(
     private val useOboe: Boolean = true,
     /** Told when the stream is being recovered, and when it has been (empty string). */
     private val onStatus: (String) -> Unit = {},
+    /** The AI denoiser was too heavy (or unavailable) and the standard one took over. */
+    private val onAiFallback: () -> Unit = {},
     private val onFrame: (ShortArray) -> Unit,
 ) {
     companion object {
@@ -65,7 +67,14 @@ class MicCapture(
     /** Which capture path is live, for the stats line: "oboe" or "audiorecord". */
     @Volatile var path: String = "none"
         private set
-    private val highPass = Biquad.highPass(AudioConstants.SAMPLE_RATE, AudioConstants.TX_HIGHPASS_HZ)
+
+    /** Wind low-cut. Default 150 Hz, second order: identical to the old fixed filter. */
+    private val highPass = WindCutFilter()
+
+    /** Slow AGC and limiter, after the denoiser. Off by default. */
+    private val agc = SlowAgc()
+    @Volatile private var agcEnabled = false
+    private var agcWasEnabled = false
 
     /** Software spectral suppression, after the phone's own effects have had a go. */
     private val denoiser = SpectralDenoiser(noiseSuppression)
@@ -80,6 +89,36 @@ class MicCapture(
     var noiseSuppression: NoiseSuppression
         get() = denoiser.strength
         set(value) { denoiser.strength = value }
+
+    /** Which denoiser does the work. Changing it takes effect on the next frame. */
+    @Volatile var engine: NoiseEngine = NoiseEngine.Standard
+        set(value) {
+            if (field != value) {
+                field = value
+                // Choosing AI again is the rider's request to try it again after a fall-back.
+                if (value == NoiseEngine.Ai) retryAi = true
+            }
+        }
+
+    // The AI denoiser's state belongs to the capture thread; these are the hand-offs to it.
+    private var ai: AiDenoiser? = null
+    private var aiGaveUp = false
+    @Volatile private var retryAi = false
+    private val aiCost = DenoiseCostMonitor()
+    private var lastUsedAi: Boolean? = null
+
+    /** Mean time the AI denoiser takes per 20 ms frame, in microseconds, for the stats line. */
+    val aiMicrosPerFrame: Double get() = aiCost.averageMicros
+
+    /** True once the AI denoiser was given up on in this call. */
+    @Volatile var aiFellBack: Boolean = false
+        private set
+
+    /** Cutoff in Hz (0 = off) and slope of the wind low-cut. Live. */
+    fun setWindCut(cutoffHz: Int, steep: Boolean) = highPass.configure(cutoffHz, steep)
+
+    /** Turns the slow AGC and limiter on or off. Live. */
+    fun setAgc(enabled: Boolean) { agcEnabled = enabled }
 
     @Volatile var lastRms: Double = 0.0
         private set
@@ -255,6 +294,7 @@ class MicCapture(
         }
 
         runCatching { platformEffects.release() }
+        releaseAi()
         runCatching { rec.stop() }
         runCatching { rec.release() }
     }
@@ -297,6 +337,7 @@ class MicCapture(
         }
 
         runCatching { platformEffects.release() }
+        releaseAi()
         eng.release()
         oboe = null
     }
@@ -351,10 +392,70 @@ class MicCapture(
         } else {
             // Take out the steady broadband part - engine, road, wind roar - so the
             // buddy hears the voice rather than the bike.
-            denoiser.process(frame)
+            denoise(frame)
         }
 
+        if (agcEnabled) {
+            if (!agcWasEnabled) agc.reset()
+            agc.process(frame)
+        }
+        agcWasEnabled = agcEnabled
+
         onFrame(frame)
+    }
+
+    /**
+     * Runs the denoiser the rider picked. The AI one is created here, on the capture thread,
+     * and abandoned (for this call) if it is unavailable or too slow for the phone.
+     */
+    private fun denoise(frame: ShortArray) {
+        if (retryAi) {
+            retryAi = false
+            aiGaveUp = false
+            aiFellBack = false
+            aiCost.reset()
+        }
+        val wantAi = engine == NoiseEngine.Ai && !aiGaveUp
+        if (wantAi && ai == null) {
+            ai = AiDenoiser.create()
+            if (ai == null) {
+                giveUpOnAi("AI noise reduction is not available on this phone - using standard")
+            }
+        }
+        val useAi = wantAi && ai != null && !aiGaveUp
+        if (lastUsedAi != useAi) {
+            // Switching engine: the one coming in has stale history from when it last ran.
+            if (useAi) ai?.reset() else denoiser.reset()
+            lastUsedAi = useAi
+        }
+        if (!useAi) {
+            denoiser.process(frame)
+            return
+        }
+        val t0 = System.nanoTime()
+        val ok = ai!!.process(frame)
+        val spent = System.nanoTime() - t0
+        if (!ok) {
+            denoiser.process(frame)
+            giveUpOnAi("AI noise reduction failed - using standard")
+        } else if (aiCost.record(spent)) {
+            giveUpOnAi("AI noise reduction is too heavy for this phone - using standard")
+        }
+    }
+
+    private fun releaseAi() {
+        ai?.release()
+        ai = null
+    }
+
+    private fun giveUpOnAi(message: String) {
+        aiGaveUp = true
+        aiFellBack = true
+        Log.w(TAG, message + " (avg ${aiCost.averageMicros.toInt()} us/frame)")
+        ai?.release()
+        ai = null
+        onStatus(message)
+        onAiFallback()
     }
 
     fun stop() {

@@ -245,3 +245,77 @@ Privacy and security
 Battery
 - [ ] One hour screen-off ride with sharing on versus off on the same phone. Record the
       difference; the update interval is 1-5 s depending on speed and spacing.
+
+## Phase 6 (audio quality: wind and noise)
+
+What the JVM tests cover: the wind low-cut (default bit-identical to the old fixed filter,
+attenuation and passband on synthetic tones, off, steep, clamp, live change), the slow AGC and
+limiter (silence stays silent, sub-gate noise is untouched, slow rise and faster fall, bounded
+gain, clipping input never passes the ceiling), the AI cost monitor, and the Auto preset policy
+(hysteresis, dwell, losing the fix). What they **cannot** cover is RNNoise itself (the native
+library is ARM-only in CI), how any of this sounds, or what it costs on a phone.
+
+The numbers below were measured on a desktop x86 core, not a phone: RNNoise plus the 16/48 kHz
+resampling took about 0.3 ms per 20 ms frame (1.6% of one core). A mid-range phone is
+guessed to be 4 to 8 times slower, so 6 to 12% of a core. **That guess is not a measurement;
+record the real figure here.**
+
+AI noise reduction cost (the important one)
+- [ ] Mid-range phone (the slowest you have): Settings, Noise reduction engine, AI. Start a
+      call. `adb logcat -s IntercomStats` prints `aiUs=` (mean microseconds per frame, over
+      100 frames). Write it down: ______ us. Under 8000 is within budget; under 2000 is
+      comfortable.
+- [ ] Ten minutes of a call on Standard, then ten on AI, same phone, same screen-off. Compare
+      the battery drop (Settings, Battery) and the phone's temperature.
+- [ ] Force the fall-back: on the slowest phone you have, run another heavy app, or throttle
+      with `adb shell cmd thermalservice override-status 3`. After a few seconds the status
+      line shows "AI noise reduction is too heavy for this phone - using standard", the engine
+      in Settings is back on Standard, and the call never drops or stutters while it happens.
+- [ ] A phone whose native library does not load (an emulator, an odd ABI): choosing AI says
+      "not available on this phone - using standard" and the call carries on.
+- [ ] Switching Standard to AI and back mid-call, several times: no click, no burst of noise,
+      no stale audio from before the switch.
+- [ ] AI engine with the noise setting Off: the voice goes out with only the low-cut and gate.
+
+AI voice quality (needs a ride)
+- [ ] Same stretch of road, same helmet, both engines: record your own voice on the buddy's
+      phone and listen. Does AI cope better with gusts and passing traffic? Does it chop word
+      starts or make the voice sound "watery"? Does it fall over with the visor open?
+- [ ] Engine noise at a steady highway speed: Standard Strong versus AI.
+- [ ] A rider with a quiet voice or a strong accent: does AI remove consonants?
+- [ ] The 16 kHz to 48 kHz and back resampling adds about 11 ms and a gentle filter at 7 kHz.
+      Confirm the delay is not noticeable in conversation and there is no whistle or ringing.
+
+Wind low-cut
+- [ ] Default 150 Hz, standard slope: sounds exactly as before this update.
+- [ ] Move the slider across its whole range during a call: the change is heard within a
+      moment, with no click and no dropout.
+- [ ] Raise it to 250 to 300 Hz on a windy bike: less thump at the buddy's end. Is the voice
+      thin? Note the best value for your helmet: ______ Hz.
+- [ ] "Steeper slope" on and off: audible difference, no ringing.
+- [ ] Off: the rumble comes back (this is only for a quiet situation or a mic that already
+      filters).
+
+Even out my voice (AGC)
+- [ ] Off by default and the voice is unchanged from before.
+- [ ] On: speak quietly for 10 seconds, then normally. The buddy hears the level rise over a
+      few seconds, not in jumps. No "pumping" (a rising and falling wind noise between words).
+- [ ] Silence and wind-only gaps between sentences are not boosted. Check specifically at a
+      steady highway speed with the visor shut; if wind comes up between words, the gate at
+      -45 dBFS is too low for that helmet (tell me the number).
+- [ ] Shout, tap the mic, or bump the boom: no clipping or crackle, and the level recovers
+      within a second or so.
+- [ ] Combined with AI noise reduction and with Strong standard: no instability.
+
+Auto preset (needs location sharing on)
+- [ ] Settings, Auto on, location sharing on: ride from a standstill up to 80 km/h and back.
+      The preset (visible in `adb logcat -s IntercomStats`, `ns=`) moves Light, Medium,
+      Strong only after the speed has held about 10 seconds, and back down with a few km/h of
+      slack. Thresholds are 25 and 60 km/h; note if your bike wants different ones.
+- [ ] Stop at a traffic light for 5 seconds: the preset does not change.
+- [ ] Before the first fix, the strength you saved is used. If the fix is lost later
+      (tunnel, location switched off) the last Auto choice stays in force; it does not jump.
+- [ ] Pick Light, Medium, Strong or Off by hand (settings row or the call screen's noise
+      button): Auto switches itself off and stays off.
+- [ ] Auto is not saved as a changed strength: after ending the call the strength shown in
+      Settings is the one you picked, not whatever Auto last chose.

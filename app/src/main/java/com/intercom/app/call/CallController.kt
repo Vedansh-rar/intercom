@@ -8,6 +8,7 @@ import android.util.Log
 import com.intercom.app.audio.AdpcmAudioCodec
 import com.intercom.app.audio.AudioCodec
 import com.intercom.app.audio.AudioConstants
+import com.intercom.app.audio.AutoNoisePolicy
 import com.intercom.app.audio.Beeper
 import com.intercom.app.audio.BitratePolicy
 import com.intercom.app.audio.CodecChoice
@@ -15,6 +16,7 @@ import com.intercom.app.audio.JitterBuffer
 import com.intercom.app.audio.MicCapture
 import com.intercom.app.audio.NativeBridge
 import com.intercom.app.audio.NativeOpusEngine
+import com.intercom.app.audio.NoiseEngine
 import com.intercom.app.audio.NoiseSuppression
 import com.intercom.app.audio.OpusCodec
 import com.intercom.app.audio.VoicePlayer
@@ -28,6 +30,7 @@ import com.intercom.app.group.GroupLink
 import com.intercom.app.location.AndroidLocationProvider
 import com.intercom.app.location.LocationState
 import com.intercom.app.location.PositionCodec
+import com.intercom.app.location.PositionPolicy
 import com.intercom.app.location.PositionTracker
 import com.intercom.app.location.RideLocation
 import com.intercom.app.media.FocusManager
@@ -56,6 +59,7 @@ import com.intercom.app.transport.LinkSelector
 import com.intercom.app.transport.Transport
 import com.intercom.app.util.Permissions
 import com.intercom.app.util.Prefs
+import com.intercom.app.util.Settings
 import com.intercom.app.util.TalkMode
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -278,8 +282,10 @@ class CallController(
             noiseSuppression = settings.noiseSuppression,
             useOboe = !settings.legacyAudioPath,
             onStatus = ::onAudioStatus,
+            onAiFallback = ::onAiNoiseFallback,
             onFrame = ::onMicFrame,
         )
+        applyNoiseSettings(m, settings)
         if (!m.start()) {
             fail("Could not open the microphone")
             return
@@ -365,8 +371,10 @@ class CallController(
             noiseSuppression = settings.noiseSuppression,
             useOboe = !settings.legacyAudioPath,
             onStatus = ::onAudioStatus,
+            onAiFallback = ::onAiNoiseFallback,
             onFrame = ::onMicFrame,
         )
+        applyNoiseSettings(m, settings)
         if (!m.start()) {
             fail("Could not open the microphone")
             return
@@ -427,6 +435,7 @@ class CallController(
                 _micLevel.value = ((mic?.lastRms ?: 0.0) / 6000.0).coerceIn(0.0, 1.0).toFloat()
                 ticks++
                 if (ticks % STATUS_EVERY_TICKS == 0L) {
+                    updateAutoNoise()
                     publishGroup()
                     // A rider just came in range: tell them where we are now, not in a few seconds.
                     val ready = g.node.port.readyEndpoints().size
@@ -561,7 +570,9 @@ class CallController(
                             "undecodable=${jitter.undecodable} codecMismatch=$codecMismatches " +
                             "io=${mic?.path}/${player.path} " +
                             "dropSend=${selector?.droppedSends ?: 0} " +
-                            "ns=${mic?.noiseSuppression} hwfx=${mic?.platformEffectsReport} " +
+                            "ns=${mic?.noiseSuppression} nsEngine=${mic?.engine} " +
+                            "aiUs=${(mic?.aiMicrosPerFrame ?: 0.0).toInt()} " +
+                            "hwfx=${mic?.platformEffectsReport} " +
                             "focus=${focus.isHeld} ptt=${arb.pushToTalk} " +
                             "sec=$security rejected=${cipher?.rejected ?: 0} " +
                             "cleartextDropped=$cleartextDropped " +
@@ -569,6 +580,7 @@ class CallController(
                     )
                 }
                 if (ticks % STATUS_EVERY_TICKS == 0L) {
+                    updateAutoNoise()
                     adaptBitrate(l)
                     publishLocation()
                     update {
@@ -1103,16 +1115,70 @@ class CallController(
             NoiseSuppression.Medium -> NoiseSuppression.Strong
             NoiseSuppression.Strong -> NoiseSuppression.Off
         }
-        prefs.update { it.copy(noiseSuppression = next) }
+        // Choosing a preset by hand is the manual override: it takes Auto out of the picture.
+        prefs.update { it.copy(noiseSuppression = next, autoNoise = false) }
         mic?.noiseSuppression = next
         return next
+    }
+
+    // ---- Auto noise preset and the other Phase 6 audio settings
+
+    private val autoNoisePolicy = AutoNoisePolicy()
+
+    /** Pushes every Phase 6 setting to a capture path, at start and on each settings change. */
+    private fun applyNoiseSettings(m: MicCapture, s: Settings) {
+        m.engine = s.noiseEngine
+        m.setWindCut(s.windCutHz, s.windCutSteep)
+        m.setAgc(s.agc)
+        m.noiseSuppression = effectiveSuppression(s)
+    }
+
+    /**
+     * The preset in force: the rider's own, unless Auto is on and the speed has picked one.
+     * Off is never overridden; Auto chooses between the three strengths only.
+     */
+    private fun effectiveSuppression(s: Settings): NoiseSuppression {
+        if (!s.autoNoise || s.noiseSuppression == NoiseSuppression.Off) return s.noiseSuppression
+        return autoNoisePolicy.preset ?: s.noiseSuppression
+    }
+
+    /** Once a second: feed the GPS speed to the Auto policy and apply what it picks. */
+    private fun updateAutoNoise() {
+        val s = prefs.current
+        if (!s.autoNoise) {
+            autoNoisePolicy.reset()
+            return
+        }
+        val m = mic ?: return
+        autoNoisePolicy.update(ownSpeedKmh(), System.currentTimeMillis())
+        // Never persisted: Auto is a live choice, and the saved preset stays the fallback.
+        m.noiseSuppression = effectiveSuppression(s)
+    }
+
+    /** My own speed in km/h, or null when location is off or the last fix is stale. */
+    private fun ownSpeedKmh(): Double? {
+        val rl = rideLocation ?: return null
+        if (!rl.enabled) return null
+        val fix = rl.tracker.own() ?: return null
+        val ageMs = (System.nanoTime() / 1000L - fix.stampMicros) / 1000L
+        if (PositionPolicy.isStale(ageMs)) return null
+        return fix.speedMps * 3.6
+    }
+
+    /**
+     * The AI denoiser could not run (unavailable, or too heavy for this phone) and the standard
+     * one took over. Remember that, so the next call does not try the same thing and the
+     * settings screen shows what is really running.
+     */
+    private fun onAiNoiseFallback() {
+        prefs.update { it.copy(noiseEngine = NoiseEngine.Standard) }
     }
 
     fun applySettingsChange() {
         val s = prefs.current
         vad.sensitivity = s.vadSensitivity
-        // Suppression strength changes take effect on the next frame; no call restart.
-        mic?.noiseSuppression = s.noiseSuppression
+        // Noise settings change on the next frame; no call restart.
+        mic?.let { applyNoiseSettings(it, s) }
         focus.takeFocus = s.takeAudioFocus
         applyVoiceLevel(s.voiceLevelDb, s.takeAudioFocus)
         group?.applySettings()

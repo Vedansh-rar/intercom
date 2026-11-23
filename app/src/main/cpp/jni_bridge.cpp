@@ -3,6 +3,7 @@
 #include <memory>
 #include "audio_engine.h"
 #include "opus_coder.h"
+#include "rnnoise_denoiser.h"
 
 // JNI for com.intercom.app.audio.NativeBridge. Everything here is called once per 20 ms
 // frame at most and uses critical array access, so nothing is allocated per call.
@@ -101,6 +102,38 @@ Java_com_intercom_app_audio_NativeBridge_opusDecoderDecode(JNIEnv* env, jclass, 
 JNIEXPORT void JNICALL
 Java_com_intercom_app_audio_NativeBridge_opusDecoderDestroy(JNIEnv*, jclass, jlong handle) {
     delete reinterpret_cast<OpusDecoderWrap*>(handle);
+}
+
+// ------------------------------------------------------------------ RNNoise
+
+JNIEXPORT jlong JNICALL
+Java_com_intercom_app_audio_NativeBridge_rnnoiseCreate(JNIEnv*, jclass) {
+    auto* d = new RnnoiseDenoiser();
+    if (!d->init()) {
+        delete d;
+        return 0;
+    }
+    return reinterpret_cast<jlong>(d);
+}
+
+JNIEXPORT jboolean JNICALL
+Java_com_intercom_app_audio_NativeBridge_rnnoiseProcess(JNIEnv* env, jclass, jlong handle,
+                                                        jshortArray pcm, jint count) {
+    auto* d = reinterpret_cast<RnnoiseDenoiser*>(handle);
+    if (!d || !pcm || count <= 0 || env->GetArrayLength(pcm) < count) return JNI_FALSE;
+    ScopedShorts buf(env, pcm);
+    if (!buf.ptr) return JNI_FALSE;
+    return d->process(reinterpret_cast<int16_t*>(buf.ptr), count) ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT void JNICALL
+Java_com_intercom_app_audio_NativeBridge_rnnoiseReset(JNIEnv*, jclass, jlong handle) {
+    if (auto* d = reinterpret_cast<RnnoiseDenoiser*>(handle)) d->reset();
+}
+
+JNIEXPORT void JNICALL
+Java_com_intercom_app_audio_NativeBridge_rnnoiseDestroy(JNIEnv*, jclass, jlong handle) {
+    delete reinterpret_cast<RnnoiseDenoiser*>(handle);
 }
 
 // ------------------------------------------------------------------ audio engine
