@@ -111,6 +111,8 @@ data class Settings(
     val autoUpdateCheck: Boolean = false,
     /** Group rides go through a relay over mobile data instead of Nearby. Off by default. */
     val internetRide: Boolean = false,
+    /** Walkie-talkie preset: quick push-to-talk group over Nearby. Off by default. */
+    val walkieMode: Boolean = false,
     /** The relay's `wss://` address. Empty until the rider sets one; the app has no default server. */
     val relayUrl: String = "",
     /** Larger buttons with more space between them, for riding gloves. */
@@ -186,6 +188,7 @@ class Prefs(context: Context) {
         highContrast = sp.getBoolean(K_HIGH_CONTRAST, false),
         autoUpdateCheck = sp.getBoolean(K_AUTO_UPDATE, false),
         internetRide = sp.getBoolean(K_INTERNET_RIDE, false),
+        walkieMode = sp.getBoolean(K_WALKIE, false),
         relayUrl = sp.getString(K_RELAY_URL, "") ?: "",
         largeButtons = sp.getBoolean(K_LARGE_BUTTONS, false),
     )
@@ -233,6 +236,7 @@ class Prefs(context: Context) {
             putBoolean(K_HIGH_CONTRAST, next.highContrast)
             putBoolean(K_AUTO_UPDATE, next.autoUpdateCheck)
             putBoolean(K_INTERNET_RIDE, next.internetRide)
+            putBoolean(K_WALKIE, next.walkieMode)
             putString(K_RELAY_URL, next.relayUrl)
             putBoolean(K_LARGE_BUTTONS, next.largeButtons)
         }.apply()
@@ -276,6 +280,7 @@ class Prefs(context: Context) {
         private const val K_ONBOARDED = "onboarded"
         private const val K_AUTO_UPDATE = "auto_update_check"
         private const val K_INTERNET_RIDE = "internet_ride"
+        private const val K_WALKIE = "walkie_mode"
         private const val K_RELAY_URL = "relay_url"
         private const val K_LAST_UPDATE_CHECK = "last_update_check"
         private const val K_BTN_SINGLE = "btn_single"
@@ -318,3 +323,8 @@ class Prefs(context: Context) {
         const val SECRETS_FILE = "rider_intercom_secret"
     }
 }
+
+// What the rider's switches mean once walkie-talkie mode is taken into account.
+val Settings.isGroup: Boolean get() = WalkiePolicy.isGroup(walkieMode, groupRide)
+val Settings.effectiveTalkMode: TalkMode get() = WalkiePolicy.talkMode(walkieMode, talkMode)
+val Settings.useInternet: Boolean get() = WalkiePolicy.useInternet(walkieMode, internetRide)

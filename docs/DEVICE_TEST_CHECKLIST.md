@@ -535,3 +535,15 @@ phones on mobile data, ideally on different carriers and far apart.
 - [ ] Capture the traffic to the relay: only TLS to your host; no other host is contacted.
 - [ ] Positions: with Share location on, an internet ride shows no distances and sends nothing.
 - [ ] Known gaps to decide on: there is no latency measurement or adaptive bitrate; no relay discovery; a relay operator can test short ride codes offline.
+
+## Phase 11: walkie-talkie mode
+
+- [ ] Start screen: switching Walkie-talkie on hides the Group ride switch and shows the start/join buttons for a group; switching it off brings it back.
+- [ ] Two or three phones a few metres apart, one hosts, others join with the same code, no Bluetooth pairing: they connect.
+- [ ] The Call screen shows hold-to-talk only (no open mic) even if Settings > Talk mode is Open; the notification action is push-to-talk too.
+- [ ] Hold to talk: the others hear it; release: they hear a short beep every time, even for transmissions a second apart.
+- [ ] Phones near each other on the loudspeaker: note how much feedback there is at normal volume and whether the beep is loud enough outdoors.
+- [ ] Walkie on with Internet ride on: it still uses Nearby, not the relay (no network traffic).
+- [ ] Hindi: the card and its explanation are in Hindi and fit at large font size.
+- [ ] Range: walk apart and note where it drops (Nearby on Bluetooth versus Wi-Fi), indoors and in the open.
+- [ ] Switch walkie off: the next group ride has the rider's normal talk mode and beep setting back.

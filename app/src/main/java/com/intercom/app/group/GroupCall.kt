@@ -19,6 +19,7 @@ import com.intercom.app.security.RideCode
 import com.intercom.app.transport.LinkState
 import com.intercom.app.util.Prefs
 import com.intercom.app.util.TalkMode
+import com.intercom.app.util.WalkiePolicy
 import kotlinx.coroutines.flow.StateFlow
 
 /**
@@ -45,6 +46,8 @@ class GroupCall(
     private val onChanged: () -> Unit,
     /** `wss://` relay base for an internet ride; null for the over-the-air group. */
     private val internetRelay: String? = null,
+    /** Walkie-talkie preset: push-to-talk only, and a roger beep when a transmission ends. */
+    private val walkie: Boolean = false,
 ) {
     val selfId: Int = SenderId.random()
     private val sessionId = Hello.newSessionId()
@@ -114,7 +117,11 @@ class GroupCall(
             focus.applyFloor(node.floor.state())
             onChanged()
         }
-        node.onChannelFree = { if (prefs.current.beepWhenMuted) beeper.request() }
+        node.onChannelFree = {
+            if (WalkiePolicy.beepWhenChannelFree(walkie, prefs.current.beepWhenMuted)) {
+                beeper.request(ignoreGap = WalkiePolicy.beepIgnoresGap(walkie))
+            }
+        }
         node.onYield = { wasWaiting = true }
     }
 
@@ -174,7 +181,7 @@ class GroupCall(
             return
         }
 
-        val open = prefs.current.talkMode == TalkMode.Open
+        val open = WalkiePolicy.talkMode(walkie, prefs.current.talkMode) == TalkMode.Open
         if (open) {
             when (event) {
                 VadEvent.Open -> vadOpen = true
@@ -227,7 +234,7 @@ class GroupCall(
 
     /** About every 200 ms. */
     fun tick() {
-        node.tick(prefs.current.talkMode == TalkMode.PushToTalk)
+        node.tick(WalkiePolicy.talkMode(walkie, prefs.current.talkMode) == TalkMode.PushToTalk)
     }
 
     fun peers(): List<GroupPeer> = node.snapshot()

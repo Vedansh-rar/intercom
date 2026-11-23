@@ -30,6 +30,7 @@ import com.intercom.app.media.ButtonSession
 import com.intercom.app.transport.LinkRole
 import com.intercom.app.util.Permissions
 import com.intercom.app.util.TalkMode
+import com.intercom.app.util.effectiveTalkMode
 import com.intercom.app.ui.MainActivity
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -391,7 +392,7 @@ class IntercomService : Service() {
             .setSubText(
                 str(
                     R.string.svc_subtext,
-                    str(settings.talkMode.labelRes()),
+                    str(settings.effectiveTalkMode.labelRes()),
                     str(settings.noiseSuppression.labelRes()),
                 )
             )
@@ -409,7 +410,7 @@ class IntercomService : Service() {
         builder.addAction(
             action(if (status.micMuted) str(R.string.group_unmute) else str(R.string.group_mute), ACTION_TOGGLE_MUTE, 5)
         )
-        if (settings.talkMode == TalkMode.PushToTalk) {
+        if (settings.effectiveTalkMode == TalkMode.PushToTalk) {
             builder.addAction(
                 action(if (status.pushToTalk) str(R.string.svc_act_talking) else str(R.string.svc_act_talk), ACTION_TOGGLE_PTT, 1)
             )

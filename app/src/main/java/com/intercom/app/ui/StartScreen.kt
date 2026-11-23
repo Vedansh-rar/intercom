@@ -48,6 +48,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.intercom.app.R
+import com.intercom.app.util.isGroup
+import com.intercom.app.util.useInternet
 import com.intercom.app.audio.MicSource
 import com.intercom.app.discovery.NearbyHost
 import com.intercom.app.audio.NoiseSuppression
@@ -84,6 +86,7 @@ fun StartScreen(
     onOem: () -> Unit,
     onStartGroup: (priority: Int) -> Unit,
     onGroupRide: (Boolean) -> Unit,
+    onWalkie: (Boolean) -> Unit = {},
 ) {
     var hostModeState by remember { mutableStateOf(true) }
     // The whole screen recolours with the choice: orange hosting, blue joining.
@@ -96,6 +99,7 @@ fun StartScreen(
             onHostMode = { hostModeState = it },
             onStartGroup = onStartGroup,
             onGroupRide = onGroupRide,
+            onWalkie = onWalkie,
         )
     }
 }
@@ -121,6 +125,7 @@ private fun StartScreenContent(
     onHostMode: (Boolean) -> Unit,
     onStartGroup: (Int) -> Unit,
     onGroupRide: (Boolean) -> Unit,
+    onWalkie: (Boolean) -> Unit = {},
 ) {
     var selected by remember(bondedDevices) {
         mutableStateOf(
@@ -136,7 +141,7 @@ private fun StartScreenContent(
     val audioIcon = ImageVector.vectorResource(R.drawable.ic_volume_up)
     // Both phones must share a ride code, unless the rider has chosen to allow unprotected calls.
     // A group ride is always encrypted, so it has no "unencrypted buddy" way round the code.
-    val group = settings.groupRide
+    val group = settings.isGroup
     val hasCode = settings.rideCode.isNotBlank() || (!group && settings.allowLegacyBuddy)
     val canGo = ready && hasCode && (group || hostMode || selected != null)
     // The host of a group starts it with priority 1; riders who join have 0.
@@ -493,8 +498,13 @@ private fun StartScreenContent(
 
         // ---- group ride opt-in --------------------------------------------------
         Spacer(Modifier.height(14.dp))
-        Box(Modifier.padding(horizontal = 16.dp)) {
-            GroupRideCard(enabled = group, onChange = onGroupRide, internet = settings.internetRide)
+        Column(Modifier.padding(horizontal = 16.dp)) {
+            // Walkie-talkie mode is a group that is always on, so its own card replaces the switch.
+            if (!settings.walkieMode) {
+                GroupRideCard(enabled = group, onChange = onGroupRide, internet = settings.useInternet)
+                Spacer(Modifier.height(14.dp))
+            }
+            WalkieCard(enabled = settings.walkieMode, onChange = onWalkie)
         }
 
         // ---- the ride code ------------------------------------------------------

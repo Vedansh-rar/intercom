@@ -85,6 +85,18 @@ Settings > Share log saves the recent app log with positions, ride codes, names 
 Bluetooth addresses removed and opens the share sheet; nothing is uploaded. After a call a
 summary shows duration, link quality and radio switches. It is kept in memory only.
 
+### Walkie-talkie mode (very short distances)
+On the Start screen, switch on **Walkie-talkie**. It is a quick push-to-talk channel for people
+standing or walking close together, not a new radio: the phones join through Nearby
+Connections with no pairing (the same radios and range as a group ride, tens of metres and
+more in the open), everyone enters the same ride code (the 6-digit quick code is the easiest
+to read out), and talking is hold-to-talk only. When someone lets go, everyone hears a short
+beep. The sound comes from the phone's speaker unless a headset is connected, so keep it low to
+avoid feedback. It is a switch on the group ride, so it keeps the encryption and the rider
+list; it never uses the internet relay. The 6-digit quick code is weak against someone who
+records the handshake (see Security below), which is a fair trade for talking to the person next
+to you and a poor one for anything private.
+
 ### Internet ride (optional, for city and plains riding)
 Bluetooth and Wi-Fi Direct reach tens of metres, and a group ride a few hundred along a
 convoy. Where there is phone signal you can ride further apart over mobile data instead:

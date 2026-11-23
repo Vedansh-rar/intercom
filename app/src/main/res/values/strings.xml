@@ -688,6 +688,10 @@
     <string name="upd_version">Installed version: %1$s</string>
     <string name="vad_high">High</string>
     <string name="vad_low">Low</string>
+    <string name="walkie_explain">For very short distances: phones close together join with no pairing, over the same radios as a group ride (tens of metres, more in the open). Hold the button to talk; release it and everyone hears a beep. Everyone enters the same ride code. Sound comes from the phone\'s speaker unless a headset is connected, so keep the volume down to avoid feedback.</string>
+    <string name="walkie_off">Off. Switch on for a quick push-to-talk channel with people standing nearby.</string>
+    <string name="walkie_on">On: push to talk, with a beep when someone finishes.</string>
+    <string name="walkie_title">Walkie-talkie</string>
     <string name="wifi_blocker_none">this phone has no Wi-Fi Direct</string>
     <string name="wifi_blocker_off">Wi-Fi is switched off</string>
     <string name="wifi_blocker_permission">the Nearby Wi-Fi permission is not granted</string>

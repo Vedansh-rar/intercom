@@ -72,6 +72,39 @@ fun GroupRideCard(enabled: Boolean, onChange: (Boolean) -> Unit, internet: Boole
     }
 }
 
+/** The walkie-talkie switch: a push-to-talk group of phones close by, no pairing needed. */
+@Composable
+fun WalkieCard(enabled: Boolean, onChange: (Boolean) -> Unit) {
+    val description = stringResource(R.string.walkie_title)
+    BrandCard(Modifier.fillMaxWidth()) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text(
+                    stringResource(R.string.walkie_title),
+                    fontSize = 11.sp, letterSpacing = 1.6.sp,
+                    fontWeight = FontWeight.SemiBold, color = Brand.TextDim,
+                )
+                Text(
+                    if (enabled) stringResource(R.string.walkie_on) else stringResource(R.string.walkie_off),
+                    fontSize = 15.sp, color = Brand.TextPrimary,
+                )
+            }
+            Switch(
+                checked = enabled,
+                onCheckedChange = onChange,
+                colors = SwitchDefaults.colors(checkedTrackColor = LocalAccents.current.base),
+                modifier = Modifier.semantics { contentDescription = description },
+            )
+        }
+        if (enabled) {
+            Text(
+                stringResource(R.string.walkie_explain),
+                fontSize = 13.sp, color = Brand.TextDim, lineHeight = 18.sp,
+            )
+        }
+    }
+}
+
 /**
  * Everyone on the ride: who is speaking, how good their link is, and a mute for each.
  *

@@ -24,9 +24,9 @@ class Beeper(
     private var lastBeepAt = 0L
 
     /** Rate limited, so a rider holding a conversation against the mute does not buzz. */
-    fun request(): Boolean {
+    fun request(ignoreGap: Boolean = false): Boolean {
         val now = System.currentTimeMillis()
-        if (now - lastBeepAt < minGapMs) return false
+        if (!ignoreGap && now - lastBeepAt < minGapMs) return false
         lastBeepAt = now
         remaining = totalSamples
         phase = 0.0

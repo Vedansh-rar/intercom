@@ -18,6 +18,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import com.intercom.app.audio.PlatformAudioEffects
 import com.intercom.app.call.CallStatus
+import com.intercom.app.util.effectiveTalkMode
 import com.intercom.app.discovery.NearbyHost
 import com.intercom.app.call.IntercomService
 import com.intercom.app.transport.LinkRole
@@ -109,13 +110,14 @@ fun AppRoot(
                     onOem = { onScreen(Screen.Oem) },
                     onStartGroup = onStartGroup,
                     onGroupRide = { on -> prefs.update { it.copy(groupRide = on) } },
+                    onWalkie = { on -> prefs.update { it.copy(walkieMode = on) } },
                 )
 
                 Screen.Call -> CallScreen(
                     status = status,
                     riderName = settings.riderName,
                     micLevel = service?.controller?.micLevel?.collectAsState()?.value ?: 0f,
-                    talkMode = settings.talkMode,
+                    talkMode = settings.effectiveTalkMode,
                     noiseSuppression = settings.noiseSuppression,
                     onCycleNoise = { service?.controller?.cycleNoiseSuppression() },
                     onPushToTalkDown = { service?.controller?.setPushToTalk(true) },

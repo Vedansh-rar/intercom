@@ -16,6 +16,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.lifecycle.lifecycleScope
 import androidx.compose.runtime.collectAsState
 import com.intercom.app.update.InstallAction
+import com.intercom.app.util.useInternet
 import com.intercom.app.update.UpdatePolicy
 import kotlinx.coroutines.launch
 import androidx.compose.runtime.getValue
@@ -312,7 +313,7 @@ class MainActivity : ComponentActivity() {
     private fun startGroupCall(priority: Int) {
         // An internet ride has no convoy scan, so it does not need the extra location grant
         // the over-the-air group asks for on Android 12 and 12L.
-        val internet = prefs.current.internetRide
+        val internet = prefs.current.useInternet
         val haveAll = if (internet) Permissions.allGranted(this) else Permissions.hasGroup(this)
         if (!haveAll) {
             val extras = if (internet) emptyList() else Permissions.groupExtras().toList()

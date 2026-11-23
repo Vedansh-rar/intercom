@@ -687,6 +687,10 @@
     <string name="upd_version">इंस्टॉल किया गया संस्करण: %1$s</string>
     <string name="vad_high">ज़्यादा</string>
     <string name="vad_low">कम</string>
+    <string name="walkie_explain">बहुत कम दूरी के लिए: पास के फ़ोन बिना पेयरिंग के ग्रुप राइड वाले उन्हीं रेडियो से जुड़ते हैं (दसों मीटर, खुले में ज़्यादा)। बोलने के लिए बटन दबाए रखें; छोड़ने पर सबको बीप सुनाई देती है। सब एक ही राइड कोड डालें। हेडसेट न हो तो आवाज़ फ़ोन के स्पीकर से आती है, इसलिए फ़ीडबैक से बचने के लिए आवाज़ कम रखें।</string>
+    <string name="walkie_off">बंद। पास खड़े लोगों के साथ तुरंत पुश-टू-टॉक चैनल के लिए चालू करें।</string>
+    <string name="walkie_on">चालू: पुश-टू-टॉक, और कोई बोलना खत्म करे तो बीप।</string>
+    <string name="walkie_title">वॉकी-टॉकी</string>
     <string name="wifi_blocker_none">इस फ़ोन में Wi-Fi Direct नहीं है</string>
     <string name="wifi_blocker_off">Wi-Fi बंद है</string>
     <string name="wifi_blocker_permission">नज़दीकी Wi-Fi की अनुमति नहीं दी गई है</string>

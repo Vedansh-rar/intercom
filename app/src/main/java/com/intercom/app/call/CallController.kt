@@ -35,6 +35,7 @@ import com.intercom.app.floor.VadEvent
 import com.intercom.app.group.GroupCall
 import com.intercom.app.group.GroupLink
 import com.intercom.app.relay.InternetRoom
+import com.intercom.app.util.useInternet
 import com.intercom.app.relay.RelayUrl
 import com.intercom.app.location.AndroidLocationProvider
 import com.intercom.app.location.Geo
@@ -367,7 +368,7 @@ class CallController(
         val settings = prefs.current
         // An internet ride needs neither the Nearby permissions nor Play services: it only
         // needs the relay, which is checked below.
-        val internet = settings.internetRide
+        val internet = settings.useInternet
         if (!internet) {
             if (!Permissions.hasGroup(context)) { fail(R.string.cc_err_nearby_perm); return }
             if (!GroupLink.isAvailable(context)) { fail(R.string.cc_err_play_services); return }
@@ -421,6 +422,7 @@ class CallController(
             seenNonces = seenNonces,
             onChanged = { publishGroup() },
             internetRelay = relay,
+            walkie = settings.walkieMode,
         )
         group = g
         g.node.positionsEnabled = false  // until the rider's setting says otherwise
