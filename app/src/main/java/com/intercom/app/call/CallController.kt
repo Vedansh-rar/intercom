@@ -19,7 +19,9 @@ import com.intercom.app.floor.Vad
 import com.intercom.app.floor.VadEvent
 import com.intercom.app.media.FocusManager
 import com.intercom.app.protocol.Codec
+import com.intercom.app.protocol.Capabilities
 import com.intercom.app.protocol.Hello
+import com.intercom.app.protocol.NegotiatedFeatures
 import com.intercom.app.protocol.Message
 import com.intercom.app.protocol.Protocol
 import com.intercom.app.transport.LinkRole
@@ -94,6 +96,13 @@ class CallController(
     private val encoder = AdpcmCodec.Encoder()
 
     private var mic: MicCapture? = null
+
+    /**
+     * What this call may use, from both sides' HELLOs. Until a HELLO arrives, and for any
+     * v1 buddy, this is the original call: ADPCM, no position, no auth, no group.
+     */
+    @Volatile var features: NegotiatedFeatures = NegotiatedFeatures.LEGACY
+        private set
     private var link: PeerLink? = null
     private var selector: LinkSelector? = null
     private var arbiter: FloorArbiter? = null
@@ -160,6 +169,7 @@ class CallController(
             codec = Hello.CODEC_ADPCM,
             sessionId = sessionId,
             riderName = settings.riderName,
+            capabilities = Capabilities.LOCAL,
         )
 
         val arb = FloorArbiter(sessionId, floorActions)
@@ -230,7 +240,13 @@ class CallController(
         scope.launch { l.status.collect { s -> update { it.copy(statusText = s) } } }
         scope.launch { l.rttMillis.collect { r -> update { it.copy(rttMs = r) } } }
         scope.launch {
-            l.peerHello.collect { h -> update { it.copy(peerName = h?.riderName) } }
+            l.peerHello.collect { h ->
+                update { it.copy(peerName = h?.riderName) }
+                if (h != null) {
+                    features = NegotiatedFeatures.negotiate(Capabilities.LOCAL, h)
+                    Log.i(TAG, "buddy v${h.version}, features: $features")
+                }
+            }
         }
     }
 

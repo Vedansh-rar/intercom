@@ -15,9 +15,9 @@ import java.io.ByteArrayOutputStream
 class ProtocolTest {
 
     @Test
-    fun `hello survives a round trip`() {
+    fun `v1 hello survives a round trip and stays 32 bytes`() {
         val h = Hello(
-            version = Protocol.VERSION,
+            version = 1,
             sampleRate = 16000,
             frameSamples = 320,
             codec = Hello.CODEC_ADPCM,

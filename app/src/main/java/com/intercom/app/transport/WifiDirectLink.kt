@@ -599,7 +599,7 @@ class WifiDirectLink(
                 val m = reader.next() ?: return@withContext null
                 if (m.type != Protocol.TYPE_HELLO) continue
                 val peer = Hello.parse(m.payload) ?: return@withContext null
-                if (peer.version != Protocol.VERSION) {
+                if (!Protocol.isSupportedVersion(peer.version)) {
                     _status.value = "Version mismatch over Wi-Fi Direct"
                     return@withContext null
                 }
