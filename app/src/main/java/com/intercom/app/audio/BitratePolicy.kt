@@ -24,7 +24,7 @@ class BitratePolicy(
     private val downAfter: Int = 2,
     private val upAfter: Int = 15,
 ) {
-    init { require(ladder.isNotEmpty() && ladder.zipWithNext().all { (a, b) -> a > b } ) {
+    init { require(ladder.isNotEmpty() && ladder.toList().zipWithNext().all { (a, b) -> a > b } ) {
         "ladder must be strictly descending"
     } }
 
