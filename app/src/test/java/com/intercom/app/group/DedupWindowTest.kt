@@ -34,8 +34,8 @@ class DedupWindowTest {
     @Test fun aStragglerOlderThanTheWindowIsRefused() {
         val d = DedupWindow()
         assertTrue(d.firstSighting(1, 200))
-        assertFalse(d.firstSighting(1, 200 - DedupWindow.WINDOW))
-        assertTrue(d.firstSighting(1, 200 - DedupWindow.WINDOW + 1))
+        assertFalse(d.firstSighting(1, 200L - DedupWindow.WINDOW))
+        assertTrue(d.firstSighting(1, 200L - DedupWindow.WINDOW + 1))
     }
 
     @Test fun theTableIsBoundedAndForgetsTheLeastRecentSender() {

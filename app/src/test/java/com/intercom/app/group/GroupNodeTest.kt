@@ -16,7 +16,7 @@ class GroupNodeTest {
     private fun line(vararg labels: String): SimNet {
         val net = SimNet()
         labels.forEachIndexed { i, l -> net.add(l, 1000 + i) }
-        labels.zipWithNext().forEach { (a, b) -> net.link(a, b) }
+        labels.toList().zipWithNext().forEach { (a, b) -> net.link(a, b) }
         return net
     }
 
