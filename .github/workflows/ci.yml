@@ -28,6 +28,11 @@ jobs:
       - name: Assemble debug APK
         run: ./gradlew :app:assembleDebug --stacktrace
 
+      # The definition of done includes a release build: R8 and resource shrinking can break
+      # things a debug build never shows. Unsigned unless a keystore is provided.
+      - name: Assemble release APK
+        run: ./gradlew :app:assembleRelease --stacktrace
+
       - name: Upload test reports
         if: always()
         uses: actions/upload-artifact@v4
