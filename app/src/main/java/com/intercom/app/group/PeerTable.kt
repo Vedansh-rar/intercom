@@ -1,5 +1,6 @@
 package com.intercom.app.group
 
+import com.intercom.app.location.RiderDistance
 import java.util.concurrent.ConcurrentHashMap
 
 /** A rough health label for the peer list. */
@@ -20,6 +21,8 @@ data class GroupPeer(
     val speaking: Boolean,
     val muted: Boolean,
     val lastHeardMs: Long,
+    /** Distance and direction from this phone, once positions are being shared. */
+    val distance: RiderDistance? = null,
 ) {
     val isHost: Boolean get() = priority > 0
 }
@@ -116,6 +119,7 @@ class PeerTable(
         speaking: (Int) -> Boolean,
         lossPercent: (Int) -> Double,
         hasLossData: (Int) -> Boolean,
+        distance: (Int) -> RiderDistance? = { null },
     ): List<GroupPeer> {
         val t = now()
         return peers.values.map { e ->
@@ -129,6 +133,7 @@ class PeerTable(
                 speaking = speaking(e.id),
                 muted = mutedIds.contains(e.id),
                 lastHeardMs = e.lastHeard,
+                distance = distance(e.id),
             )
         }.sortedWith(compareByDescending<GroupPeer> { it.priority }.thenBy { it.name.lowercase() }.thenBy { it.id })
     }

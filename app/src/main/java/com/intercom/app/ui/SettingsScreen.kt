@@ -28,9 +28,12 @@ import androidx.compose.ui.unit.dp
 import com.intercom.app.audio.MicSource
 import com.intercom.app.audio.NoiseSuppression
 import com.intercom.app.floor.VadSensitivity
+import com.intercom.app.location.DistanceFormat
+import com.intercom.app.location.DistanceUnit
 import com.intercom.app.util.Settings as RiderSettings
 import com.intercom.app.util.TalkMode
 import com.intercom.app.util.TransportPreference
+import kotlin.math.roundToInt
 
 /**
  * Everything the rider can change. The wording matters here: each option says what it
@@ -47,6 +50,11 @@ fun SettingsScreen(
     onBack: () -> Unit,
     onOem: () -> Unit,
     onHfp: () -> Unit = {},
+    /** Switching sharing on may need the location permission first, so the caller owns it. */
+    onShareLocation: (Boolean) -> Unit = { on -> onChange { it.copy(shareLocation = on) } },
+    /** The rider was asked for location and said no (or allowed approximate only). */
+    locationDenied: Boolean = false,
+    onOpenAppSettings: () -> Unit = {},
 ) {
     Column(
         Modifier.fillMaxSize().background(Brand.Background)
@@ -253,6 +261,77 @@ fun SettingsScreen(
             )
         }
 
+        SectionCard(title = "Location") {
+            ToggleRow(
+                checked = settings.shareLocation,
+                title = "Share my location with riders",
+                subtitle = "Shows how far away your buddy or group is, and lets them see how " +
+                    "far you are. While this is on, your phone reads its GPS and sends your " +
+                    "position straight to the riders in your call, encrypted with your ride " +
+                    "code. It goes phone to phone only: there is no server and no internet, " +
+                    "nothing is stored, and it stops when the call ends. You see distances " +
+                    "only while you share your own. It costs some battery. Off by default.",
+                onChange = onShareLocation,
+            )
+            if (locationDenied) {
+                Text(
+                    "Precise location was not allowed, so nothing is shared. Allow \"Precise\" " +
+                        "location for this app in the phone's settings, then switch this on.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = Brand.Buddy,
+                )
+                SecondaryButton("Open app settings", onOpenAppSettings)
+            }
+            Text("Show distances in", style = MaterialTheme.typography.bodyLarge)
+            DistanceUnit.entries.forEach { u ->
+                ChoiceRow(
+                    selected = settings.distanceUnit == u,
+                    title = when (u) {
+                        DistanceUnit.Kilometres -> "Kilometres (m / km)"
+                        DistanceUnit.Miles -> "Miles (ft / mi)"
+                    },
+                    subtitle = "",
+                    onClick = { onChange { it.copy(distanceUnit = u) } },
+                )
+            }
+            ToggleRow(
+                checked = settings.fallingBehindAlert,
+                title = "Warn me when a rider falls behind",
+                subtitle = "A short beep on your own phone (never sent to anyone) when a " +
+                    "rider stays farther away than the distance below for the time below, " +
+                    "then again every 30 seconds while they are still out. Needs sharing on.",
+                onChange = { v -> onChange { it.copy(fallingBehindAlert = v) } },
+            )
+            if (settings.fallingBehindAlert) {
+                val far = DistanceFormat.format(
+                    settings.fallingBehindMeters.toDouble(), settings.distanceUnit,
+                ).text
+                Text("Farther than $far", style = MaterialTheme.typography.bodyLarge)
+                Slider(
+                    value = settings.fallingBehindMeters.toFloat(),
+                    onValueChange = { v ->
+                        onChange { s -> s.copy(fallingBehindMeters = (v / 100f).roundToInt().coerceAtLeast(1) * 100) }
+                    },
+                    valueRange = 100f..2000f,
+                    steps = 18,
+                    colors = sliderColors(),
+                )
+                Text(
+                    "for ${settings.fallingBehindSeconds} seconds",
+                    style = MaterialTheme.typography.bodyLarge,
+                )
+                Slider(
+                    value = settings.fallingBehindSeconds.toFloat(),
+                    onValueChange = { v ->
+                        onChange { s -> s.copy(fallingBehindSeconds = (v / 5f).roundToInt().coerceAtLeast(1) * 5) }
+                    },
+                    valueRange = 5f..60f,
+                    steps = 10,
+                    colors = sliderColors(),
+                )
+            }
+        }
+
         SectionCard(title = "Ride security") {
             Text(
                 "Calls are encrypted with your ride code. A buddy who has the wrong code, " +
@@ -279,6 +358,15 @@ fun SettingsScreen(
         }
     }
 }
+
+@Composable
+private fun sliderColors() = SliderDefaults.colors(
+    thumbColor = Brand.Accent,
+    activeTrackColor = Brand.Accent,
+    inactiveTrackColor = Brand.SurfaceElevated,
+    activeTickColor = Brand.AccentDeep,
+    inactiveTickColor = Brand.Border,
+)
 
 @Composable
 private fun ChoiceRow(
@@ -311,11 +399,13 @@ private fun ChoiceRow(
                 style = MaterialTheme.typography.bodyLarge,
                 color = if (enabled) MaterialTheme.colorScheme.onSurface else IntercomColors.dim,
             )
-            Text(
-                subtitle,
-                style = MaterialTheme.typography.bodyMedium,
-                color = IntercomColors.dim,
-            )
+            if (subtitle.isNotEmpty()) {
+                Text(
+                    subtitle,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = IntercomColors.dim,
+                )
+            }
         }
     }
 }

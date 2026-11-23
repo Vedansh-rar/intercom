@@ -133,6 +133,10 @@ dependencies {
     // a transport, nothing more - authentication and encryption are our own (security/).
     // It talks to Play services on the phone over Bluetooth and Wi-Fi; no internet needed.
     implementation(libs.play.services.nearby)
+    // Rider position (Phase 5), only while "Share my location" is on. The fused client gives
+    // a better fix for less battery than the raw GPS; with no Play services the app falls
+    // back to the platform LocationManager. Nothing here uses the network.
+    implementation(libs.play.services.location)
     debugImplementation(libs.androidx.ui.tooling)
     testImplementation("junit:junit:4.13.2")
 }

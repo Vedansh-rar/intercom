@@ -23,6 +23,7 @@ import com.intercom.app.floor.FloorState
 import com.intercom.app.media.ButtonGesture
 import com.intercom.app.media.ButtonSession
 import com.intercom.app.transport.LinkRole
+import com.intercom.app.util.Permissions
 import com.intercom.app.util.TalkMode
 import com.intercom.app.ui.MainActivity
 import kotlinx.coroutines.CoroutineScope
@@ -31,6 +32,8 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
 /**
@@ -105,6 +108,9 @@ class IntercomService : Service() {
     private var wakeLock: PowerManager.WakeLock? = null
     private var started = false
 
+    /** True while the foreground service is declared with the location type. */
+    private var locationType = false
+
     private val _lastKeyCode = MutableStateFlow(0)
     /** Raw headset key codes, for the calibration screen in settings. */
     val lastKeyCode: StateFlow<Int> = _lastKeyCode
@@ -119,6 +125,14 @@ class IntercomService : Service() {
 
         controller = CallController(applicationContext, app.prefs, adapter)
         _instance.value = this
+
+        // "Share my location" switched on or off mid-call: the location foreground type
+        // follows it, so the GPS keeps working with the screen off and only then.
+        scope.launch {
+            app.prefs.settings.map { it.shareLocation }.distinctUntilChanged().collect {
+                refreshForegroundTypes()
+            }
+        }
 
         scope.launch {
             controller.status.collect { s ->
@@ -196,24 +210,62 @@ class IntercomService : Service() {
 
     // ------------------------------------------------------------- foreground
 
-    private fun goForeground(status: CallStatus) {
-        val notification = buildNotification(status)
-        val types = ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE or
+    /** Location is part of the service only while the rider shares it and has granted it. */
+    private fun locationInUse(): Boolean =
+        (application as RiderIntercomApp).prefs.current.shareLocation && Permissions.hasLocation(this)
+
+    private fun foregroundTypes(withLocation: Boolean): Int {
+        var types = ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE or
             ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE or
             ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK
-        try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                startForeground(NOTIFICATION_ID, notification, types)
-            } else {
-                startForeground(NOTIFICATION_ID, notification)
-            }
-        } catch (t: Throwable) {
-            // On Android 14+ this is the SecurityException from trying to create a
-            // microphone-type service from the background. Tell the rider rather than
-            // silently retrying into one-way audio.
-            Log.e(TAG, "startForeground failed", t)
-            notifyServiceFailed()
-            stopSelf()
+        // Android 14 throws if the location type is declared without the permission, so it
+        // is added only when the permission is in hand, never "just in case".
+        if (withLocation) types = types or ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION
+        return types
+    }
+
+    private fun tryStartForeground(notification: Notification, types: Int): Boolean = try {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            startForeground(NOTIFICATION_ID, notification, types)
+        } else {
+            startForeground(NOTIFICATION_ID, notification)
+        }
+        true
+    } catch (t: Throwable) {
+        Log.e(TAG, "startForeground failed (types=$types)", t)
+        false
+    }
+
+    private fun goForeground(status: CallStatus) {
+        val notification = buildNotification(status)
+        val wantLocation = locationInUse()
+        if (tryStartForeground(notification, foregroundTypes(wantLocation))) {
+            locationType = wantLocation
+            return
+        }
+        // Location is optional: if only it was the problem, the call must not be lost.
+        if (wantLocation && tryStartForeground(notification, foregroundTypes(false))) {
+            locationType = false
+            return
+        }
+        // On Android 14+ this is the SecurityException from trying to create a
+        // microphone-type service from the background. Tell the rider rather than
+        // silently retrying into one-way audio.
+        notifyServiceFailed()
+        stopSelf()
+    }
+
+    /**
+     * Brings the declared types in line with the rider's setting while a call is running.
+     * Unlike [goForeground] a failure here changes nothing and never ends the call: the call
+     * keeps its microphone service and location simply stays as it was.
+     */
+    private fun refreshForegroundTypes() {
+        if (!started) return
+        val want = locationInUse()
+        if (want == locationType) return
+        if (tryStartForeground(buildNotification(controller.status.value), foregroundTypes(want))) {
+            locationType = want
         }
     }
 

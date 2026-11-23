@@ -53,6 +53,25 @@ class MainActivity : ComponentActivity() {
         permissionsGranted = result.values.all { it } || Permissions.allGranted(this)
     }
 
+    /** True after the rider was asked for precise location and did not allow it. */
+    private var locationDenied by mutableStateOf(false)
+
+    /**
+     * Asked only when "Share my location with riders" is switched on. Android 12+ needs the
+     * approximate permission requested together with the precise one, and the rider may
+     * grant only approximate: that is not enough for a distance, so it counts as a no.
+     */
+    private val askLocation = registerForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) {
+        val granted = Permissions.hasLocation(this)
+        locationDenied = !granted
+        if (granted) {
+            prefs.update { it.copy(shareLocation = true) }
+            IntercomService.instance.value?.controller?.applySettingsChange()
+        }
+    }
+
     private val enableBluetooth = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) { /* state is re-read when the screen recomposes */ }
@@ -94,6 +113,11 @@ class MainActivity : ComponentActivity() {
                     onOpenOemSettings = { intent ->
                         runCatching { startActivity(intent) }
                     },
+                    onRequestLocation = {
+                        locationDenied = false
+                        askLocation.launch(Permissions.locationPermissions())
+                    },
+                    locationDenied = locationDenied,
                 )
             }
         }

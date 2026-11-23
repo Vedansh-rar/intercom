@@ -24,7 +24,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.intercom.app.group.GroupPeer
+import com.intercom.app.location.DistanceUnit
 import com.intercom.app.group.LinkQuality
+import com.intercom.app.location.DistanceText
 
 /**
  * The opt-in for convoys. Off by default, so two riders see exactly the screen they always
@@ -70,7 +72,12 @@ fun GroupRideCard(enabled: Boolean, onChange: (Boolean) -> Unit) {
  * everyone else, and your phone still passes their voice along to riders further back.
  */
 @Composable
-fun PeerList(peers: List<GroupPeer>, onMute: (id: Int, muted: Boolean) -> Unit) {
+fun PeerList(
+    peers: List<GroupPeer>,
+    onMute: (id: Int, muted: Boolean) -> Unit,
+    unit: DistanceUnit = DistanceUnit.Kilometres,
+    gpsNote: String? = null,
+) {
     BrandCard(Modifier.fillMaxWidth()) {
         Text(
             if (peers.isEmpty()) "RIDERS" else "RIDERS  ·  ${peers.size}",
@@ -83,12 +90,15 @@ fun PeerList(peers: List<GroupPeer>, onMute: (id: Int, muted: Boolean) -> Unit) 
                 fontSize = 14.sp, color = Brand.TextDim, lineHeight = 19.sp,
             )
         }
-        peers.forEach { p -> PeerRow(p, onMute) }
+        peers.forEach { p -> PeerRow(p, onMute, unit) }
+        if (gpsNote != null) {
+            Text(gpsNote, fontSize = 12.sp, color = Brand.TextDim, lineHeight = 17.sp)
+        }
     }
 }
 
 @Composable
-private fun PeerRow(p: GroupPeer, onMute: (Int, Boolean) -> Unit) {
+private fun PeerRow(p: GroupPeer, onMute: (Int, Boolean) -> Unit, unit: DistanceUnit) {
     val speaking = p.speaking && !p.muted
     val summary = buildString {
         append(p.name)
@@ -96,6 +106,8 @@ private fun PeerRow(p: GroupPeer, onMute: (Int, Boolean) -> Unit) {
         if (speaking) append(", speaking")
         if (p.muted) append(", muted")
         append(", link ").append(qualityWord(p.quality))
+        // The distance reads out in its own sentence for a screen reader.
+        p.distance?.let { append(", ").append(DistanceText.spoken(null, it, unit).removePrefix("Rider, ")) }
     }
     Row(
         Modifier
@@ -128,6 +140,7 @@ private fun PeerRow(p: GroupPeer, onMute: (Int, Boolean) -> Unit) {
                 color = if (speaking) Brand.Talking else qualityColor(p.quality),
             )
         }
+        p.distance?.let { DistanceReadout(name = null, distance = it, unit = unit, compact = true) }
         TextButton(onClick = { onMute(p.id, !p.muted) }) {
             Text(
                 if (p.muted) "Unmute" else "Mute",

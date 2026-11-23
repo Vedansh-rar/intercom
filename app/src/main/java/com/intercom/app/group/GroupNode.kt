@@ -1,7 +1,9 @@
 package com.intercom.app.group
 
+import com.intercom.app.location.PositionTracker
 import com.intercom.app.protocol.Message
 import com.intercom.app.protocol.PeerInfo
+import com.intercom.app.protocol.PositionReport
 import com.intercom.app.protocol.Protocol
 
 /** What [GroupNode] needs from the radio: who is directly connected, and a way to send. */
@@ -34,6 +36,8 @@ class GroupNode(
     val mixer: GroupMixer,
     val peers: PeerTable = PeerTable(),
     private val now: () -> Long = System::currentTimeMillis,
+    /** Everyone's shared position, keyed by sender ID. Stays empty unless riders share. */
+    val positions: PositionTracker = PositionTracker(now),
 ) {
     val router = MeshRouter(selfId)
     val floor = GroupFloor(selfId, selfPriority)
@@ -50,6 +54,13 @@ class GroupNode(
 
     /** A rider appeared or vanished, or the floor changed: refresh the screen. */
     @Volatile var onChanged: () -> Unit = {}
+
+    /**
+     * Whether positions addressed to this rider are kept. The call turns it off while "Share
+     * my location" is off, so a phone that has not opted in stores nobody's location. Relaying
+     * is unaffected: a position still passes through on its way to riders who do want it.
+     */
+    @Volatile var positionsEnabled: Boolean = true
 
     @Volatile var relayed = 0L; private set
     @Volatile var dropped = 0L; private set
@@ -98,7 +109,12 @@ class GroupNode(
             Protocol.TYPE_PEER_INFO -> {
                 PeerInfo.parse(env.body)?.let { peers.info(env.senderId, it.name, it.priority) }
             }
-            else -> Unit // position, SOS and anything newer: later phases, or ignored
+            // Positions are not audio, so a muted rider is still tracked: mute is about this
+            // phone's speaker, not about knowing where someone is.
+            Protocol.TYPE_POSITION -> if (positionsEnabled) {
+                PositionReport.parse(env.body)?.let { positions.onReport(env.senderId, it, env.ageMs.toLong()) }
+            }
+            else -> Unit // SOS and anything newer: later phases, or ignored
         }
         onChanged()
     }
@@ -162,6 +178,10 @@ class GroupNode(
         }
     }
 
+    /** Sends our position to the group (relayed like everything else). True if anyone got it. */
+    fun sendPosition(report: PositionReport): Boolean =
+        originate(Protocol.TYPE_POSITION, 0, report.toBytes()) > 0
+
     /** Announces this phone's name and priority to the group. */
     fun beacon() {
         lastBeaconAt = now()
@@ -198,6 +218,7 @@ class GroupNode(
     private fun forget(id: Int) {
         mixer.remove(id)
         router.forget(id)
+        positions.forget(id)
         val e = floor.peerLeft(id)
         if (e is GroupFloor.Event.ChannelFree) onChannelFree()
     }
@@ -209,11 +230,15 @@ class GroupNode(
     }
 
     /** The list the screen draws. */
-    fun snapshot(): List<GroupPeer> = peers.snapshot(
-        speaking = mixer::speaking,
-        lossPercent = mixer::lossPercent,
-        hasLossData = { mixer.playedFrames(it) >= 25 },
-    )
+    fun snapshot(): List<GroupPeer> {
+        val where = positions.snapshot()
+        return peers.snapshot(
+            speaking = mixer::speaking,
+            lossPercent = mixer::lossPercent,
+            hasLossData = { mixer.playedFrames(it) >= 25 },
+            distance = { where[it] },
+        )
+    }
 
     companion object {
         const val BEACON_MS = 5_000L

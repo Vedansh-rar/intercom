@@ -25,6 +25,11 @@ import com.intercom.app.floor.Vad
 import com.intercom.app.floor.VadEvent
 import com.intercom.app.group.GroupCall
 import com.intercom.app.group.GroupLink
+import com.intercom.app.location.AndroidLocationProvider
+import com.intercom.app.location.LocationState
+import com.intercom.app.location.PositionCodec
+import com.intercom.app.location.PositionTracker
+import com.intercom.app.location.RideLocation
 import com.intercom.app.media.FocusManager
 import com.intercom.app.protocol.AuthChallenge
 import com.intercom.app.protocol.AuthResponse
@@ -34,6 +39,7 @@ import com.intercom.app.protocol.CodecId
 import com.intercom.app.protocol.Hello
 import com.intercom.app.protocol.NegotiatedFeatures
 import com.intercom.app.protocol.Message
+import com.intercom.app.protocol.PositionReport
 import com.intercom.app.protocol.Protocol
 import com.intercom.app.security.AuthSession
 import com.intercom.app.security.ChannelSecurity
@@ -143,6 +149,13 @@ class CallController(
 
     private var mic: MicCapture? = null
 
+    /**
+     * Everything location does for this call: GPS, sharing, distances, the falling-behind
+     * alert. Created per call, always present during one, and inert (nothing read, sent or
+     * kept) while "Share my location" is off.
+     */
+    @Volatile private var rideLocation: RideLocation? = null
+
     /** Non-null for the whole of a group ride; two-rider calls never touch it. */
     @Volatile private var group: GroupCall? = null
 
@@ -246,6 +259,7 @@ class CallController(
         )
         selector = l
         link = l
+        newRideLocation(group = false, tracker = PositionTracker(), send = ::sendPosition)
         arb.rttMillisProvider = { l.rttMillis.value }
         l.setOnMessage(::onMessage)
         l.start()
@@ -330,6 +344,13 @@ class CallController(
             onChanged = { publishGroup() },
         )
         group = g
+        g.node.positionsEnabled = false  // until the rider's setting says otherwise
+        newRideLocation(
+            group = true,
+            tracker = g.node.positions,
+            send = g.node::sendPosition,
+            onEnabled = { g.node.positionsEnabled = it },
+        )
         player.source = g.mixer
         player.preferOboe = !settings.legacyAudioPath
         player.onStatus = ::onAudioStatus
@@ -398,6 +419,7 @@ class CallController(
     private fun startGroupTicker(g: GroupCall) {
         ticker?.cancel()
         var ticks = 0L
+        var readyBefore = 0
         ticker = scope.launch {
             while (isActive) {
                 delay(TICK_MS)
@@ -406,6 +428,11 @@ class CallController(
                 ticks++
                 if (ticks % STATUS_EVERY_TICKS == 0L) {
                     publishGroup()
+                    // A rider just came in range: tell them where we are now, not in a few seconds.
+                    val ready = g.node.port.readyEndpoints().size
+                    if (ready > readyBefore) rideLocation?.announce()
+                    readyBefore = ready
+                    publishLocation()
                     update {
                         it.copy(
                             focusHeld = focus.isHeld,
@@ -543,6 +570,7 @@ class CallController(
                 }
                 if (ticks % STATUS_EVERY_TICKS == 0L) {
                     adaptBitrate(l)
+                    publishLocation()
                     update {
                         it.copy(
                             floor = arb.state.value,
@@ -693,6 +721,7 @@ class CallController(
                 update { it.copy(statusText = "Buddy ended the call") }
                 stop()
             }
+            Protocol.TYPE_POSITION -> onPosition(m)
             else -> Log.d(TAG, "ignoring ${Protocol.typeName(m.type)}")
         }
     }
@@ -770,7 +799,7 @@ class CallController(
     @Volatile private var cleartextDropped = 0L
 
     /** AUTH is advertised only when there is a ride code to prove anything with. */
-    private fun localCaps(): Int = Capabilities.local(opusAvailable, rideCode != null)
+    private fun localCaps(): Int = Capabilities.local(opusAvailable, rideCode != null, positionAvailable = true)
 
     private fun secondsLeft(): Long = (throttle.remainingMs() + 999) / 1000
 
@@ -874,6 +903,8 @@ class CallController(
                 val text = link?.status?.value ?: "Connected"
                 update { it.copy(security = ChannelSecurity.Encrypted, statusText = text) }
                 Log.i(TAG, "channel authenticated and encrypted")
+                // The buddy should not wait for the next timed report to see a distance.
+                rideLocation?.announce()
             }
 
             AuthSession.Outcome.WrongCode -> {
@@ -950,6 +981,70 @@ class CallController(
         l.send(Codec.encode(type, controlSeq.getAndIncrement() and 0xFFFF, 0, body))
     }
 
+    // ------------------------------------------------------------ position
+
+    private fun newRideLocation(
+        group: Boolean,
+        tracker: PositionTracker,
+        send: (PositionReport) -> Boolean,
+        onEnabled: (Boolean) -> Unit = {},
+    ) {
+        val rl = RideLocation(
+            source = AndroidLocationProvider(context),
+            tracker = tracker,
+            group = group,
+            send = send,
+            onState = { st -> update { it.copy(location = st) } },
+            onEnabledChanged = onEnabled,
+        )
+        rideLocation = rl
+        // Off by default: this starts the GPS only if the rider switched sharing on and
+        // location is granted. Otherwise nothing is read.
+        rl.configure(prefs.current.shareLocation, Permissions.hasLocation(context))
+    }
+
+    /**
+     * Our position to the buddy. Only over an authenticated, encrypted channel: a call the
+     * rider chose to run unencrypted must not carry their location, and nothing is sent to
+     * a v1 buddy that does not understand it.
+     */
+    private fun sendPosition(report: PositionReport): Boolean {
+        val l = link ?: return false
+        if (!features.position || security != ChannelSecurity.Encrypted) return false
+        // A non-blocking enqueue behind the audio's own queue: it cannot hold up a voice frame.
+        return sendFrame(l, Protocol.TYPE_POSITION, controlSeq.getAndIncrement() and 0xFFFF, 0, report.toBytes())
+    }
+
+    private fun onPosition(m: Message) {
+        val rl = rideLocation ?: return
+        if (!rl.enabled || !features.position || security != ChannelSecurity.Encrypted) return
+        val report = PositionReport.parse(m.payload) ?: return
+        // How old the fix already was: the buddy stamped it on their clock, and the link
+        // measured the offset between the two. An unmeasured or implausible offset reads as
+        // "fresh on arrival", never as a wildly old or future fix.
+        val age = PositionCodec.ageMs(report, link?.clockOffsetMicros ?: 0L, System.nanoTime() / 1000L)
+        rl.onReport(PositionTracker.BUDDY, report, age ?: 0L)
+    }
+
+    /** Once a second: refresh what the screen shows and run the falling-behind alert. */
+    private fun publishLocation() {
+        val rl = rideLocation ?: return
+        val s = prefs.current
+        val all = rl.distances()
+        if (rl.checkFallingBehind(
+                nowMs = System.currentTimeMillis(),
+                riders = all.values,
+                alertOn = s.fallingBehindAlert,
+                thresholdM = s.fallingBehindMeters.toDouble(),
+                holdMs = s.fallingBehindSeconds * 1000L,
+            )
+        ) {
+            beeper.request()
+        }
+        val buddy = if (group == null) all[PositionTracker.BUDDY] else null
+        update { it.copy(buddy = buddy, fallingBehind = rl.fallingBehind) }
+    }
+
     // ------------------------------------------------------------ interruption
 
     /**
@@ -1021,6 +1116,8 @@ class CallController(
         focus.takeFocus = s.takeAudioFocus
         applyVoiceLevel(s.voiceLevelDb, s.takeAudioFocus)
         group?.applySettings()
+        rideLocation?.configure(s.shareLocation, Permissions.hasLocation(context))
+        publishLocation()
     }
 
     private fun applyVoiceLevel(voiceLevelDb: Int, takeFocus: Boolean) {
@@ -1032,6 +1129,9 @@ class CallController(
     fun stop() {
         ticker?.cancel()
         ticker = null
+        // Stops the GPS: location is read only while a call is up.
+        rideLocation?.stop()
+        rideLocation = null
         mic?.stop()
         mic = null
         link?.close()
@@ -1075,6 +1175,9 @@ class CallController(
                 security = ChannelSecurity.Pending,
                 group = false,
                 peers = emptyList(),
+                location = LocationState.Off,
+                buddy = null,
+                fallingBehind = false,
             )
         }
     }
@@ -1086,7 +1189,13 @@ class CallController(
 
     private fun fail(message: String) {
         Log.e(TAG, message)
-        update { it.copy(phase = CallPhase.Error, error = message, statusText = message) }
+        update {
+            it.copy(
+                phase = CallPhase.Error, error = message, statusText = message,
+                location = LocationState.Off, buddy = null, fallingBehind = false,
+            )
+        }
+        rideLocation?.stop(); rideLocation = null
         mic?.stop(); mic = null
         link?.close(); link = null
         player.stop()

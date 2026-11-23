@@ -12,9 +12,14 @@
     <!-- ===== Bluetooth: legacy, Android 10-11 ===== -->
     <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
     <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" android:maxSdkVersion="30" />
-    <uses-permission
-        android:name="android.permission.ACCESS_FINE_LOCATION"
-        android:maxSdkVersion="32" />
+
+    <!-- ===== Location =====
+         Android 10-12 want fine location for Bluetooth/Nearby discovery; on every version
+         it is also what "Share my location with riders" (Phase 5) uses for distance.
+         Android 12+ requires COARSE to be requested together with FINE. Nothing asks for
+         either until the rider turns the feature on (or, on old Android, starts a ride). -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
 
     <uses-permission android:name="android.permission.BLUETOOTH_ADVERTISE" />
 
@@ -38,6 +43,7 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
@@ -45,6 +51,9 @@
     <uses-feature android:name="android.hardware.bluetooth" android:required="true" />
     <uses-feature android:name="android.hardware.microphone" android:required="true" />
     <uses-feature android:name="android.hardware.wifi.direct" android:required="false" />
+    <!-- Distance to riders is optional, so a phone without GPS can still install the app. -->
+    <uses-feature android:name="android.hardware.location" android:required="false" />
+    <uses-feature android:name="android.hardware.location.gps" android:required="false" />
 
     <application
         android:name=".RiderIntercomApp"
@@ -74,7 +83,7 @@
             android:name=".call.IntercomService"
             android:exported="false"
             android:stopWithTask="false"
-            android:foregroundServiceType="microphone|connectedDevice|mediaPlayback" />
+            android:foregroundServiceType="microphone|connectedDevice|mediaPlayback|location" />
 
         <receiver
             android:name="androidx.media.session.MediaButtonReceiver"

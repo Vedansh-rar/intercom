@@ -19,14 +19,25 @@ object Capabilities {
     /**
      * What this build offers, given what this phone can actually run. A bit is only ever
      * set for a feature that is implemented *and* usable here: advertising a capability
-     * this build cannot honour would make the buddy rely on it. Position and group join
-     * this as their phases land.
+     * this build cannot honour would make the buddy rely on it. Group joins this when its
+     * phase lands (group rides are negotiated by Nearby, not by HELLO).
+     *
+     * [positionAvailable] means this build can receive and show a rider's position. It is
+     * true whenever the feature is built in, not only while the rider has "Share my
+     * location" on: the setting can change mid-call, HELLO cannot. Whether anything is
+     * actually sent or kept is decided by the setting, not by this bit.
      *
      * [authAvailable] is true when a ride code is set: without one this phone cannot prove
      * anything, so it must not claim [AUTH].
      */
-    fun local(opusAvailable: Boolean, authAvailable: Boolean = false): Int =
-        (if (opusAvailable) OPUS else 0) or (if (authAvailable) AUTH else 0)
+    fun local(
+        opusAvailable: Boolean,
+        authAvailable: Boolean = false,
+        positionAvailable: Boolean = false,
+    ): Int =
+        (if (opusAvailable) OPUS else 0) or
+            (if (authAvailable) AUTH else 0) or
+            (if (positionAvailable) POSITION else 0)
 
     fun names(caps: Int): List<String> = buildList {
         if (caps and OPUS != 0) add("OPUS")

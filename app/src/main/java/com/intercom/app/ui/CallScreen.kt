@@ -45,6 +45,7 @@ import com.intercom.app.call.CallStatus
 import com.intercom.app.security.ChannelSecurity
 import com.intercom.app.audio.NoiseSuppression
 import com.intercom.app.floor.FloorState
+import com.intercom.app.location.DistanceUnit
 import com.intercom.app.util.TalkMode
 
 /**
@@ -68,6 +69,7 @@ fun CallScreen(
     onBack: () -> Unit,
     onSettings: () -> Unit,
     onPeerMute: (id: Int, muted: Boolean) -> Unit = { _, _ -> },
+    distanceUnit: DistanceUnit = DistanceUnit.Kilometres,
 ) = WithAccents(host = status.isHost) {
     val accents = LocalAccents.current
     val stateColor = when {
@@ -155,6 +157,16 @@ fun CallScreen(
         }
 
         Spacer(Modifier.height(24.dp))
+
+        // ---- distance to the other rider(s): only while the rider shares ----------
+        if (status.fallingBehind) {
+            Box(Modifier.padding(horizontal = 16.dp)) { FallingBehindBanner(farthestRiderName(status)) }
+            Spacer(Modifier.height(12.dp))
+        }
+        if (!status.group && showsLocation(status)) {
+            Box(Modifier.padding(horizontal = 16.dp)) { BuddyDistanceCard(status, distanceUnit) }
+            Spacer(Modifier.height(16.dp))
+        }
 
         // ---- push to talk, only when that is the chosen mode ---------------------
         if (talkMode == TalkMode.PushToTalk) {
@@ -271,7 +283,7 @@ fun CallScreen(
         if (status.group) {
             Spacer(Modifier.height(14.dp))
             Box(Modifier.padding(horizontal = 16.dp)) {
-                PeerList(status.peers, onPeerMute)
+                PeerList(status.peers, onPeerMute, distanceUnit, groupGpsNote(status))
             }
         }
 

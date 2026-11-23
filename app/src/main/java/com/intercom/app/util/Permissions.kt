@@ -43,7 +43,8 @@ object Permissions {
      */
     fun groupExtras(): Array<String> =
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && Build.VERSION.SDK_INT <= 32) {
-            arrayOf(Manifest.permission.ACCESS_FINE_LOCATION)
+            // Android 12+ ignores a request for FINE on its own: COARSE must come with it.
+            arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)
         } else emptyArray()
 
     fun missingForGroup(context: Context): List<String> =
@@ -80,6 +81,20 @@ object Permissions {
                 PackageManager.PERMISSION_GRANTED
         }
 
+    /**
+     * What "Share my location with riders" needs: precise location, requested together with
+     * approximate (Android 12+ requires the pair in one request; the rider may then grant
+     * only approximate, which is not enough for a distance between two riders and is treated
+     * as "not granted" by [hasLocation]).
+     */
+    fun locationPermissions(): Array<String> =
+        arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)
+
+    /** Precise location is granted. Re-checked whenever it is used: it can be revoked at any time. */
+    fun hasLocation(context: Context): Boolean =
+        ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) ==
+            PackageManager.PERMISSION_GRANTED
+
     fun hasMicrophone(context: Context): Boolean =
         ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) ==
             PackageManager.PERMISSION_GRANTED
@@ -90,6 +105,7 @@ object Permissions {
         Manifest.permission.BLUETOOTH_SCAN -> "Bluetooth scan"
         Manifest.permission.BLUETOOTH_ADVERTISE -> "Bluetooth advertise (so buddies can find you)"
         Manifest.permission.ACCESS_FINE_LOCATION -> "Location (needed for Bluetooth on this Android)"
+        Manifest.permission.ACCESS_COARSE_LOCATION -> "Approximate location (requested together with precise)"
         Manifest.permission.POST_NOTIFICATIONS -> "Notifications"
         Manifest.permission.NEARBY_WIFI_DEVICES -> "Nearby Wi-Fi (for the long-range link)"
         else -> permission.substringAfterLast('.')

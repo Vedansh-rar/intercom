@@ -149,3 +149,99 @@ Relay and range
 Regression
 - [ ] Two phones with Group ride off: Bluetooth and Wi-Fi Direct calls behave exactly as in
       Phase 3 (connect, encrypted, switch transports).
+
+## Phase 5 (rider position and distance)
+
+The geometry (haversine, bearing, ahead/behind), the send-rate policy, staleness, smoothing,
+the falling-behind rule, the payload encode/decode, the "off means off" switch and the group
+relay of positions are unit-tested on the JVM. What cannot be tested without phones is the
+GPS itself, the permission prompts, the foreground-service type, battery, and whether the
+numbers match the road. Needs two phones; three for the group items.
+
+Permission flow (do each on its own Android version if you have them)
+- [ ] Fresh install: Start screen, microphone and Bluetooth prompts appear exactly as before.
+      **No location prompt at launch** on Android 13+ (and none until a ride starts on 12/12L
+      where Nearby needs it).
+- [ ] Settings → Location → switch on "Share my location": the system prompt appears **now**.
+      Allow "Precise": the switch stays on. Allow "Approximate" only: the switch goes back
+      off and the app says precise location is needed. Deny: same.
+- [ ] Android 12 and 13, 14, 15: the prompt shows the precise/approximate choice (the app
+      requests both permissions together, which Android 12+ requires).
+- [ ] Revoke location in system settings while sharing: the app returns to "not allowed",
+      nothing crashes, the call and audio carry on.
+- [ ] "Allow only while using the app" is enough for a ride with the **screen off**, because
+      the call's foreground service declares the location type. Confirm: lock the screen for
+      5 minutes mid-ride and distances keep updating.
+- [ ] Android 14 and 15: switching sharing on **mid-call** adds the location type to the
+      running service without ending the call (watch `adb logcat -s IntercomService`;
+      "startForeground failed" must not appear). Switching it off drops the type.
+- [ ] Android 14+: starting a ride with sharing on and location denied does not crash the
+      service (the location type is only declared when the permission is granted).
+- [ ] The status-bar location indicator is on only while a call is up and sharing is on.
+
+GPS and numbers
+- [ ] Two phones side by side outdoors: distance reads "< 20 m" (not "0 m" or a flicker).
+- [ ] Walk one phone 100 m, 250 m, 500 m along a street and compare with a map or a measuring
+      app. Expect agreement within the stated accuracy (a few tens of metres at worst).
+- [ ] Distance stops flickering between two values from one report to the next (the
+      smoothing works), but a phone driven away fast does not lag behind reality.
+- [ ] Cold start: sharing on with no fix since morning. Record how long "Looking for a GPS
+      fix" lasts outdoors and indoors. Indoors it may never get one; it must say so, not
+      show a wrong number.
+- [ ] Phone with location switched off in quick settings: the app says so, and recovers when
+      it is switched back on.
+- [ ] A phone with no Google Play services falls back to the plain GPS provider and still
+      shows distance.
+- [ ] Airplane mode and no SIM: distance still works (GPS needs no network).
+
+Direction and wording
+- [ ] Riding (or walking fast, over ~5 km/h): the arrow points at the other rider relative to
+      the way you are facing; turn a corner and it turns the opposite way. "Ahead" and
+      "behind" read correctly when one rider is in front of the other.
+- [ ] Standing still: no arrow (a stationary GPS has no heading); a compass word is shown
+      instead ("to the NE") and "ahead / behind" is not claimed.
+- [ ] Phone in a tank bag or pocket at different orientations: the arrow does not depend on
+      how the phone is held (it uses movement direction, not the compass).
+- [ ] km/mi setting switches the display, and a phone set to a US/UK locale starts on miles.
+
+Freshness
+- [ ] Switch the other phone's GPS off (or walk it into a building): within about 10 s the
+      value turns grey and says "last seen N s ago", counting up; it recovers on its own.
+- [ ] Your own GPS having no fix is blamed on your phone ("your GPS signal is weak"), not on
+      the other rider.
+- [ ] A reconnect (walk out of range and back): the other rider's distance appears within a
+      second or two of the link coming back (positions are sent immediately on connect).
+- [ ] Clock offset: with the two phones' clocks several seconds apart (set one manually),
+      "last seen" still counts from about zero when a report arrives.
+
+Group
+- [ ] Three phones: each rider's row shows a distance to every other rider who shares, also
+      through a relay (A to C via B).
+- [ ] A rider who is not sharing shows no distance and the others are not affected.
+- [ ] A rider muted on your phone still shows a distance.
+- [ ] Walk one rider away: their row greys out after about 10 s and disappears with them.
+- [ ] Position traffic does not disturb audio in a group (compare dropped/stale counters in
+      `adb logcat -s IntercomStats` with sharing on and off).
+
+Alert
+- [ ] "Warn me when a rider falls behind": set 200 m for 10 s, walk one phone out. One beep
+      about 10 s after crossing 200 m, then again every 30 s while still out, and silence
+      once back inside ~180 m. A GPS wobble across 200 m for a second does not beep.
+- [ ] The beep is local only: the other rider hears nothing.
+- [ ] A rider who disappears completely does not trigger it (that shows as "last seen").
+
+Privacy and security
+- [ ] Sharing off (the default): `adb logcat` shows no location provider activity; the status
+      bar shows no location indicator; the other phone sees no distance.
+- [ ] Only one phone sharing: that phone sends, the other discards, and neither shows a
+      distance (you see distances only while you share your own).
+- [ ] Call with "Allow an unencrypted buddy" on: no position is sent.
+- [ ] A buddy on the Phase 1-3 build (no position support): the call works as before and no
+      position frames appear (logcat shows none sent).
+- [ ] Packet capture, if possible: position frames are not readable (no recognisable
+      coordinates in the capture).
+- [ ] After "End call", the location indicator goes away and GPS stops (battery stats).
+
+Battery
+- [ ] One hour screen-off ride with sharing on versus off on the same phone. Record the
+      difference; the update interval is 1-5 s depending on speed and spacing.

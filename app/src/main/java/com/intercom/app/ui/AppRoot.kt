@@ -18,6 +18,7 @@ import com.intercom.app.call.CallStatus
 import com.intercom.app.discovery.NearbyHost
 import com.intercom.app.call.IntercomService
 import com.intercom.app.transport.LinkRole
+import com.intercom.app.util.Permissions
 import com.intercom.app.util.Prefs
 
 @Composable
@@ -38,6 +39,8 @@ fun AppRoot(
     onOpenAppSettings: () -> Unit,
     onRequestBatteryExemption: () -> Unit,
     onOpenOemSettings: (Intent) -> Unit,
+    onRequestLocation: () -> Unit,
+    locationDenied: Boolean,
 ) {
     val settings by prefs.settings.collectAsState()
     val ctx = LocalContext.current
@@ -89,6 +92,7 @@ fun AppRoot(
                     onBack = { onScreen(Screen.Start) },
                     onSettings = { onScreen(Screen.Settings) },
                     onPeerMute = { id, muted -> service?.controller?.setPeerMuted(id, muted) },
+                    distanceUnit = settings.distanceUnit,
                 )
 
                 Screen.Settings -> SettingsScreen(
@@ -106,6 +110,18 @@ fun AppRoot(
                     },
                     onOem = { onScreen(Screen.Oem) },
                     onHfp = { onScreen(Screen.Hfp) },
+                    // Location is asked for only here, at the moment the rider switches the
+                    // feature on, never at launch.
+                    onShareLocation = { on ->
+                        if (on && !Permissions.hasLocation(ctx)) {
+                            onRequestLocation()
+                        } else {
+                            prefs.update { it.copy(shareLocation = on) }
+                            service?.controller?.applySettingsChange()
+                        }
+                    },
+                    locationDenied = locationDenied,
+                    onOpenAppSettings = onOpenAppSettings,
                 )
 
                 Screen.Oem -> OemScreen(

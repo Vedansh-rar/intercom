@@ -2,6 +2,8 @@ package com.intercom.app.call
 
 import com.intercom.app.floor.FloorState
 import com.intercom.app.group.GroupPeer
+import com.intercom.app.location.LocationState
+import com.intercom.app.location.RiderDistance
 import com.intercom.app.security.ChannelSecurity
 import com.intercom.app.transport.LinkState
 
@@ -36,6 +38,12 @@ data class CallStatus(
     /** True on a group ride. The two-rider fields above keep their meaning for two riders. */
     val group: Boolean = false,
     val peers: List<GroupPeer> = emptyList(),
+    /** What the GPS is doing; [LocationState.Off] unless "Share my location" is on. */
+    val location: LocationState = LocationState.Off,
+    /** Distance to the buddy in a two-rider call; null if sharing is off or nothing is known yet. */
+    val buddy: RiderDistance? = null,
+    /** The "buddy falling behind" alert is active. */
+    val fallingBehind: Boolean = false,
 ) {
     val isConnected: Boolean get() = phase == CallPhase.Active
     val canTalk: Boolean get() = isConnected && floor == FloorState.Talking

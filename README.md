@@ -40,6 +40,15 @@ Most riders don't own a dedicated helmet intercom. And even a phone call won't h
 
 Needs Google Play services. Two riders can leave Group ride off and nothing changes for them.
 
+### Distance to your buddy (optional)
+
+**Settings → Location → Share my location with riders** (off by default). When it is on, each rider sees how far away the other is (`240 m`, `1.3 km`, or `< 20 m` when the two GPS fixes cannot tell them apart), an arrow showing which way relative to where you are heading, and "ahead" or "behind" once you are moving. If the other rider's position stops arriving, the number turns grey after about 10 s and says "last seen 12 s ago". In a group each rider's row shows their distance. An optional beep warns you when a rider stays farther than a distance you set for a time you set.
+
+- The phone asks for location permission only when you switch this on, never at launch. Precise location is needed; approximate is not enough for a distance.
+- Your position goes only to the riders in your call, over the same encrypted phone-to-phone link as the voice. There is no server and no network request, nothing is stored, and the GPS stops when the call ends. On a call you chose to run unencrypted, positions are never sent.
+- You see distances only while you share your own: if sharing is off nothing is read, sent or kept, and positions sent to you are ignored.
+- The arrow uses your direction of travel, not the phone's compass, so it works in a tank bag or pocket, and it needs you to be moving (about 5 km/h or more). Standing still it shows a compass word instead.
+
 ### Talk modes
 
 | Mode | How it works |
@@ -66,6 +75,7 @@ Pick what suits your helmet in **Settings → Microphone**:
 - Opus voice codec (16 kHz, 24 kbps, in-band FEC, adaptive 24/16/12 kbps) on a native Oboe audio path, falling back to ADPCM with older builds and to AudioRecord/AudioTrack if Oboe fails
 - Ride code and encryption: both phones share a passphrase (4-8 words, or a 6-digit number) that is never sent over the air. After connecting they prove they know it with a challenge-response, then every voice and control frame is encrypted and authenticated with AES-256-GCM. A wrong code closes the link with "Wrong ride code"; repeated wrong codes are throttled. An older buddy without encryption is refused unless you allow it in Settings, and the call screen then shows a "NOT ENCRYPTED" warning
 - Group rides (opt-in): Nearby Connections (`P2P_CLUSTER`) carries a convoy. Every neighbour is authenticated with the same ride-code handshake before any audio is accepted. Frames are relayed up to 3 hops with duplicate suppression, each rider is decoded separately and mixed with soft clipping (at most 3 voices at once), and the floor gives the host priority while other speakers are ducked rather than cut off
+- Rider distance (opt-in): GPS position shared only phone to phone, encrypted, with a smoothed distance, direction arrow, ahead/behind, staleness and an optional falling-behind beep
 - Spectral noise suppression — cleans wind and engine noise from your voice
 - Foreground service — call stays alive with the screen off
 - Headset button control (play/pause to cut in)
@@ -87,6 +97,8 @@ Pick what suits your helmet in **Settings → Microphone**:
 - QR scanning uses Google's code scanner from Play services, which draws the camera screen itself, so the app needs no camera permission. That module is downloaded by Play services, not by this app. On a phone without Play services, type the code.
 
 ## Known issues
+
+- **Rider distance has not been run on real phones.** The maths, send-rate policy, staleness, smoothing and message handling are unit-tested, including positions relayed across a simulated group. The GPS itself, the permission prompts on each Android version, the location foreground-service type, battery cost and whether the numbers match the road are in `docs/DEVICE_TEST_CHECKLIST.md`. Known limits: the ahead/behind and arrow need you to be moving (a stationary GPS has no heading); GPS accuracy is tens of metres in cities and under trees, and a distance under about 20 m is shown as `< 20 m` on purpose; a rider who shares sees distances only if they share too.
 
 - **Group mode has not been run on real phones.** It is unit-tested (relay and de-duplication rules across simulated multi-phone meshes, per-rider mixing, floor and priority, the secure channel handshake), but nothing here proves how Nearby Connections behaves with no internet, whether a hop adds more delay than the 200 ms jitter budget allows, how a mid-range phone copes with three Opus decoders, or whether discovery works with the `neverForLocation` Bluetooth-scan flag. Each of these is a line in `docs/DEVICE_TEST_CHECKLIST.md`. The age of a relayed audio frame is estimated (time held at each relay plus 15 ms per hop) because the phones' clocks are not synchronised.
 

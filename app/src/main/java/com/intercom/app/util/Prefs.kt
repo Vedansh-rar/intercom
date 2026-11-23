@@ -5,6 +5,8 @@ import android.content.SharedPreferences
 import com.intercom.app.audio.MicSource
 import com.intercom.app.audio.NoiseSuppression
 import com.intercom.app.floor.VadSensitivity
+import com.intercom.app.location.DistanceUnit
+import java.util.Locale
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 
@@ -56,6 +58,17 @@ data class Settings(
     val allowLegacyBuddy: Boolean = false,
     /** Opt in to group mode (three or more riders over Nearby Connections). Off by default. */
     val groupRide: Boolean = false,
+    /**
+     * "Share my location with riders". Off by default, and while it is off the phone does not
+     * read its position, does not send one and ignores any it is sent. The feature needs
+     * location permission, which is only asked for when this is switched on.
+     */
+    val shareLocation: Boolean = false,
+    val distanceUnit: DistanceUnit = DistanceUnit.Kilometres,
+    /** Beep when a rider stays beyond [fallingBehindMeters] for [fallingBehindSeconds]. */
+    val fallingBehindAlert: Boolean = false,
+    val fallingBehindMeters: Int = 500,
+    val fallingBehindSeconds: Int = 20,
 )
 
 /** Thin SharedPreferences wrapper that publishes the whole [Settings] as a flow. */
@@ -95,6 +108,14 @@ class Prefs(context: Context) {
         rideCode = secrets.getString(K_RIDE_CODE, "") ?: "",
         allowLegacyBuddy = sp.getBoolean(K_ALLOW_LEGACY, false),
         groupRide = sp.getBoolean(K_GROUP_RIDE, false),
+        shareLocation = sp.getBoolean(K_SHARE_LOCATION, false),
+        distanceUnit = enumOf(
+            sp.getString(K_DISTANCE_UNIT, null),
+            DistanceUnit.defaultFor(Locale.getDefault().country),
+        ),
+        fallingBehindAlert = sp.getBoolean(K_BEHIND_ALERT, false),
+        fallingBehindMeters = sp.getInt(K_BEHIND_M, 500),
+        fallingBehindSeconds = sp.getInt(K_BEHIND_S, 20),
     )
 
     private inline fun <reified T : Enum<T>> enumOf(name: String?, fallback: T): T =
@@ -118,6 +139,11 @@ class Prefs(context: Context) {
             putBoolean(K_LEGACY_AUDIO, next.legacyAudioPath)
             putBoolean(K_ALLOW_LEGACY, next.allowLegacyBuddy)
             putBoolean(K_GROUP_RIDE, next.groupRide)
+            putBoolean(K_SHARE_LOCATION, next.shareLocation)
+            putString(K_DISTANCE_UNIT, next.distanceUnit.name)
+            putBoolean(K_BEHIND_ALERT, next.fallingBehindAlert)
+            putInt(K_BEHIND_M, next.fallingBehindMeters)
+            putInt(K_BEHIND_S, next.fallingBehindSeconds)
         }.apply()
         secrets.edit().putString(K_RIDE_CODE, next.rideCode).apply()
         _settings.value = next
@@ -146,6 +172,11 @@ class Prefs(context: Context) {
         const val K_ALLOW_LEGACY = "allow_legacy_buddy"
         const val K_GROUP_RIDE = "group_ride"
         const val K_RIDE_CODE = "ride_code"
+        const val K_SHARE_LOCATION = "share_location"
+        const val K_DISTANCE_UNIT = "distance_unit"
+        const val K_BEHIND_ALERT = "behind_alert"
+        const val K_BEHIND_M = "behind_m"
+        const val K_BEHIND_S = "behind_s"
         const val SECRETS_FILE = "rider_intercom_secret"
     }
 }
