@@ -52,3 +52,14 @@ connections dropped after missed pings. A small free instance is plenty for a fe
 Voice is Opus at 16 kbps, sent only while someone has the floor. With overheads, each listener
 receives about 35 kbps (about 16 MB per hour of talking) and the speaker sends that much to
 each other rider. A convoy of five where one person talks at a time uses far less than a video call.
+
+## Run it on a Windows PC (no hosting account)
+
+Double-click `laptop/start-relay.bat`. It installs Node.js and `cloudflared` with winget if they are missing, starts the relay on `127.0.0.1:8080` (reachable only through the tunnel), opens a free Cloudflare quick tunnel and prints and copies a `wss://…trycloudflare.com` address. Enter that address in the app under Settings > Internet ride.
+
+- The address changes every time you start it. Enter the new one on every phone.
+- The PC must stay on, awake and online while you ride. The script asks Windows not to sleep while it runs, but closing the lid may still sleep a laptop.
+- Cloudflare carries your riders' encrypted traffic, so it sees the same things the relay sees (IP addresses, room id, packet size and timing), and never the audio. For a fixed address, use a named Cloudflare tunnel with your own domain or deploy to a host (see above).
+- Not tested on a real Windows PC yet.
+
+`HOST` (default `0.0.0.0`) sets the address the relay binds to.
