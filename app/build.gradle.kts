@@ -16,6 +16,24 @@ android {
         targetSdk = 35
         versionCode = 1
         versionName = "1.0-phase1"
+
+        ndk {
+            // The two ABIs real phones ship with; keeps the native build and the APK small.
+            abiFilters += listOf("arm64-v8a", "armeabi-v7a")
+        }
+        externalNativeBuild {
+            cmake {
+                arguments += listOf("-DANDROID_STL=c++_shared")
+                cppFlags += "-std=c++17"
+            }
+        }
+    }
+
+    externalNativeBuild {
+        cmake {
+            path = file("src/main/cpp/CMakeLists.txt")
+            version = "3.22.1"
+        }
     }
 
     // Release signing comes from keystore.properties (gitignored) or environment
@@ -81,6 +99,7 @@ android {
     buildFeatures {
         compose = true
         buildConfig = true
+        prefab = true
     }
     testOptions {
         unitTests.isReturnDefaultValues = true
@@ -104,6 +123,7 @@ dependencies {
     implementation(libs.androidx.material3)
     implementation(libs.androidx.media)
     implementation(libs.androidx.datastore.preferences)
+    implementation(libs.oboe)
     debugImplementation(libs.androidx.ui.tooling)
     testImplementation("junit:junit:4.13.2")
 }

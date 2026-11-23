@@ -17,11 +17,12 @@ object Capabilities {
     const val KNOWN = OPUS or POSITION or AUTH or GROUP
 
     /**
-     * What this build offers right now. It only grows as the features behind each bit are
-     * actually implemented: advertising a capability the build cannot honour would make a
-     * v2 peer rely on it. Nothing is offered yet; later phases add their bit here.
+     * What this build offers, given what this phone can actually run. A bit is only ever
+     * set for a feature that is implemented *and* usable here: advertising a capability
+     * this build cannot honour would make the buddy rely on it. Position, auth and group
+     * join this as their phases land.
      */
-    const val LOCAL = 0
+    fun local(opusAvailable: Boolean): Int = if (opusAvailable) OPUS else 0
 
     fun names(caps: Int): List<String> = buildList {
         if (caps and OPUS != 0) add("OPUS")

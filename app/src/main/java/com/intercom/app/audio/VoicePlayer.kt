@@ -23,7 +23,24 @@ class VoicePlayer(
     private val jitter: JitterBuffer,
     private val beeper: Beeper,
 ) {
-    companion object { private const val TAG = "VoicePlayer" }
+    companion object {
+        private const val TAG = "VoicePlayer"
+
+        /** Frames queued ahead of the native stream. 3 x 20 ms = 60 ms of cushion. */
+        private const val QUEUE_FRAMES = 3
+    }
+
+    /** Play through native Oboe when available; false forces AudioTrack. Set before [start]. */
+    @Volatile var preferOboe: Boolean = true
+
+    /** Told when the stream is being recovered, and when it has been (empty string). */
+    @Volatile var onStatus: (String) -> Unit = {}
+
+    private var oboe: OboeEngine? = null
+
+    /** Which output path is live, for the stats line: "oboe" or "audiotrack". */
+    @Volatile var path: String = "none"
+        private set
 
     @Volatile private var running = false
     private var thread: Thread? = null
@@ -42,10 +59,39 @@ class VoicePlayer(
      * two apart is the difference between tuning the buffer and tuning the link.
      */
     val trackUnderruns: Int
-        get() = runCatching { track?.underrunCount ?: 0 }.getOrDefault(0)
+        get() = runCatching { oboe?.xruns ?: track?.underrunCount ?: 0 }.getOrDefault(0)
 
     fun start(): Boolean {
         if (running) return true
+        if (preferOboe && NativeBridge.available) {
+            if (startOboe()) return true
+            Log.w(TAG, "Oboe playback failed to start; falling back to AudioTrack")
+        }
+        return startAudioTrack()
+    }
+
+    private fun startOboe(): Boolean {
+        val eng = try { OboeEngine() } catch (t: Throwable) {
+            Log.w(TAG, "Oboe engine unavailable: ${t.message}")
+            return false
+        }
+        val rc = eng.startOutput()
+        if (rc != 0) {
+            Log.w(TAG, "Oboe output start failed, code $rc")
+            eng.release()
+            return false
+        }
+        oboe = eng
+        path = "oboe"
+        running = true
+        thread = Thread({ loopOboe(eng) }, "voice-player-oboe").apply {
+            priority = Thread.MAX_PRIORITY
+            start()
+        }
+        return true
+    }
+
+    private fun startAudioTrack(): Boolean {
 
         val minBuf = AudioTrack.getMinBufferSize(
             AudioConstants.SAMPLE_RATE,
@@ -89,6 +135,7 @@ class VoicePlayer(
         }
 
         track = t
+        path = "audiotrack"
         running = true
         thread = Thread({ loop(t) }, "voice-player").apply {
             priority = Thread.MAX_PRIORITY
@@ -109,22 +156,7 @@ class VoicePlayer(
         }
 
         while (running) {
-            val got = jitter.take(frame)
-            if (!got) frame.fill(0)
-
-            val g = gain
-            if (g != 1.0f) {
-                for (i in frame.indices) {
-                    frame[i] = (frame[i] * g).coerceIn(-32768f, 32767f).toInt().toShort()
-                }
-            }
-
-            // The mute beep is mixed into the same stream, never played on its own track.
-            beeper.mixInto(frame)
-
-            var sum = 0.0
-            for (s in frame) sum += (s.toInt() * s.toInt()).toDouble()
-            lastOutputRms = Math.sqrt(sum / frame.size)
+            produceFrame(frame)
 
             // A blocking write paces the loop at exactly one frame per 20 ms.
             val written = t.write(frame, 0, frame.size, AudioTrack.WRITE_BLOCKING)
@@ -136,6 +168,82 @@ class VoicePlayer(
 
         runCatching { t.stop() }
         runCatching { t.release() }
+    }
+
+    /** Pulls the next 20 ms from the jitter buffer and applies gain and the mute beep. */
+    private fun produceFrame(frame: ShortArray) {
+        val got = jitter.take(frame)
+        if (!got) frame.fill(0)
+
+        val g = gain
+        if (g != 1.0f) {
+            for (i in frame.indices) {
+                frame[i] = (frame[i] * g).coerceIn(-32768f, 32767f).toInt().toShort()
+            }
+        }
+
+        // The mute beep is mixed into the same stream, never played on its own track.
+        beeper.mixInto(frame)
+
+        var sum = 0.0
+        for (s in frame) sum += (s.toInt() * s.toInt()).toDouble()
+        lastOutputRms = Math.sqrt(sum / frame.size)
+    }
+
+    /**
+     * Keeps [QUEUE_FRAMES] frames queued in the native ring, one frame at a time, so the
+     * loop is paced by the stream actually consuming audio. As with AudioTrack the stream
+     * is never stopped during silence: it is fed zeroes, because stopping and restarting
+     * an A2DP stream makes the headset renegotiate and clips the next word.
+     *
+     * A stream closed underneath us (headset unplugged, route change) is reopened here, on
+     * this background thread, with backoff, and the rider is told through [onStatus].
+     */
+    private fun loopOboe(eng: OboeEngine) {
+        Process.setThreadPriority(Process.THREAD_PRIORITY_URGENT_AUDIO)
+        val frame = ShortArray(AudioConstants.FRAME_SAMPLES)
+        val backoff = RestartBackoff()
+        val limit = AudioConstants.FRAME_SAMPLES * QUEUE_FRAMES
+
+        while (running) {
+            if (eng.needsRestart) {
+                if (!recover(eng, backoff)) break
+                continue
+            }
+            if (eng.buffered >= limit) {
+                try { Thread.sleep(2) } catch (_: InterruptedException) { break }
+                continue
+            }
+            produceFrame(frame)
+            eng.writePlayback(frame, frame.size)
+            backoff.reset()
+        }
+
+        eng.release()
+        oboe = null
+    }
+
+    private fun recover(eng: OboeEngine, backoff: RestartBackoff): Boolean {
+        onStatus("Audio output changed - reconnecting")
+        while (running) {
+            val wait = backoff.next()
+            if (wait == null) {
+                Log.e(TAG, "giving up reopening audio output after ${backoff.attemptsMade} tries")
+                onStatus("Audio output lost")
+                running = false
+                return false
+            }
+            try { Thread.sleep(wait) } catch (_: InterruptedException) { return false }
+            eng.stop()
+            val rc = eng.startOutput()
+            if (rc == 0) {
+                Log.i(TAG, "audio output reopened after ${backoff.attemptsMade} tries")
+                onStatus("")
+                return true
+            }
+            Log.w(TAG, "reopen output attempt ${backoff.attemptsMade} failed, code $rc")
+        }
+        return false
     }
 
     fun stop() {

@@ -167,9 +167,15 @@ class ProtocolV2Test {
     }
 
     @Test
-    fun `this build does not yet advertise unimplemented features`() {
-        assertEquals(0, Capabilities.LOCAL and Capabilities.KNOWN.inv())
-        assertEquals(emptyList<String>(), Capabilities.names(Capabilities.LOCAL))
+    fun `this build only advertises features it can run`() {
+        // Opus is offered only when the native library and libopus actually loaded.
+        assertEquals(0, Capabilities.local(opusAvailable = false))
+        assertEquals(Capabilities.OPUS, Capabilities.local(opusAvailable = true))
+        // Nothing outside the known bits, and nothing for the phases not built yet.
+        val caps = Capabilities.local(true)
+        assertEquals(0, caps and Capabilities.KNOWN.inv())
+        assertEquals(0, caps and (Capabilities.POSITION or Capabilities.AUTH or Capabilities.GROUP))
+        assertEquals(listOf("OPUS"), Capabilities.names(caps))
     }
 
     @Test

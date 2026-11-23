@@ -38,6 +38,11 @@ data class Settings(
     val beepWhenMuted: Boolean = true,
     val takeAudioFocus: Boolean = true,
     val headsetButtonEnabled: Boolean = true,
+    /**
+     * Hidden: use AudioRecord/AudioTrack instead of Oboe, in case Oboe misbehaves on some
+     * OEM. No row in Settings; long-press the Settings title to flip it.
+     */
+    val legacyAudioPath: Boolean = false,
 )
 
 /** Thin SharedPreferences wrapper that publishes the whole [Settings] as a flow. */
@@ -64,6 +69,7 @@ class Prefs(context: Context) {
         beepWhenMuted = sp.getBoolean(K_BEEP, true),
         takeAudioFocus = sp.getBoolean(K_FOCUS, true),
         headsetButtonEnabled = sp.getBoolean(K_BUTTON, true),
+        legacyAudioPath = sp.getBoolean(K_LEGACY_AUDIO, false),
     )
 
     private inline fun <reified T : Enum<T>> enumOf(name: String?, fallback: T): T =
@@ -84,6 +90,7 @@ class Prefs(context: Context) {
             putBoolean(K_BEEP, next.beepWhenMuted)
             putBoolean(K_FOCUS, next.takeAudioFocus)
             putBoolean(K_BUTTON, next.headsetButtonEnabled)
+            putBoolean(K_LEGACY_AUDIO, next.legacyAudioPath)
         }.apply()
         _settings.value = next
     }
@@ -106,6 +113,7 @@ class Prefs(context: Context) {
         const val K_BEEP = "beep"
         const val K_FOCUS = "focus"
         const val K_BUTTON = "button"
+        const val K_LEGACY_AUDIO = "legacy_audio"
         const val K_OEM_SHOWN = "oem_shown"
     }
 }

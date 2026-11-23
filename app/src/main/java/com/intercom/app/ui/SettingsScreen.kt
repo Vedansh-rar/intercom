@@ -1,6 +1,8 @@
 package com.intercom.app.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -21,6 +23,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
 import com.intercom.app.audio.MicSource
 import com.intercom.app.audio.NoiseSuppression
@@ -49,7 +52,26 @@ fun SettingsScreen(
         Modifier.fillMaxSize().background(Brand.Background)
             .verticalScroll(rememberScrollState()).padding(bottom = 24.dp)
     ) {
-        ScreenHeader(title = "Settings", onBack = onBack)
+        // Hidden: a long-press on the title flips the legacy audio path, an escape hatch
+        // for phones where Oboe misbehaves. There is deliberately no visible switch.
+        Box(
+            Modifier.pointerInput(Unit) {
+                detectTapGestures(
+                    onLongPress = { onChange { it.copy(legacyAudioPath = !it.legacyAudioPath) } },
+                )
+            },
+        ) {
+            ScreenHeader(title = "Settings", onBack = onBack)
+        }
+        if (settings.legacyAudioPath) {
+            Text(
+                "Legacy audio path is on (AudioRecord/AudioTrack instead of Oboe). " +
+                    "Long-press the title to switch back. Applies from the next call.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = IntercomColors.dim,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+            )
+        }
 
         SectionCard(title = "How you talk") {
             Text(

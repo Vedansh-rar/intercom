@@ -5,12 +5,18 @@ import android.bluetooth.BluetoothDevice
 import android.content.Context
 import android.media.AudioManager
 import android.util.Log
-import com.intercom.app.audio.AdpcmCodec
+import com.intercom.app.audio.AdpcmAudioCodec
+import com.intercom.app.audio.AudioCodec
 import com.intercom.app.audio.AudioConstants
 import com.intercom.app.audio.Beeper
+import com.intercom.app.audio.BitratePolicy
+import com.intercom.app.audio.CodecChoice
 import com.intercom.app.audio.JitterBuffer
 import com.intercom.app.audio.MicCapture
+import com.intercom.app.audio.NativeBridge
+import com.intercom.app.audio.NativeOpusEngine
 import com.intercom.app.audio.NoiseSuppression
+import com.intercom.app.audio.OpusCodec
 import com.intercom.app.audio.VoicePlayer
 import com.intercom.app.floor.FloorActions
 import com.intercom.app.floor.FloorArbiter
@@ -20,6 +26,7 @@ import com.intercom.app.floor.VadEvent
 import com.intercom.app.media.FocusManager
 import com.intercom.app.protocol.Codec
 import com.intercom.app.protocol.Capabilities
+import com.intercom.app.protocol.CodecId
 import com.intercom.app.protocol.Hello
 import com.intercom.app.protocol.NegotiatedFeatures
 import com.intercom.app.protocol.Message
@@ -93,7 +100,28 @@ class CallController(
     private val beeper = Beeper()
     private val player = VoicePlayer(jitter, beeper)
     private val vad = Vad(prefs.current.vadSensitivity)
-    private val encoder = AdpcmCodec.Encoder()
+
+    /**
+     * The voice codec for this call. ADPCM until the buddy's HELLO says otherwise; swapped
+     * to Opus when both phones advertised it. Frames carry the codec in their flags byte
+     * so a mismatch is dropped, never decoded into noise.
+     */
+    @Volatile private var codec: AudioCodec = AdpcmAudioCodec()
+    private val txBuf = ByteArray(AudioCodec.MAX_ENCODED_BYTES)
+    private val bitratePolicy = BitratePolicy()
+    private var prevLost = 0L
+    private var prevPlayed = 0L
+    @Volatile private var codecMismatches = 0L
+
+    /** Whether libopus loaded and can create coder state on this phone. */
+    private val opusAvailable: Boolean by lazy {
+        if (!NativeBridge.available) false else runCatching {
+            val probe = NativeOpusEngine(OpusCodec.DEFAULT_BITRATE)
+            val ok = probe.usable
+            probe.release()
+            ok
+        }.getOrDefault(false)
+    }
 
     private var mic: MicCapture? = null
 
@@ -115,7 +143,6 @@ class CallController(
     /** 100 ms of audio kept back so the detector's attack delay does not clip a word. */
     private val preroll = ArrayDeque<ShortArray>(AudioConstants.PREROLL_FRAMES)
 
-    private val decodeBuf = ShortArray(AudioConstants.FRAME_SAMPLES)
     private var startedAtMs = 0L
 
     /** Set while the system owns the headset, e.g. a real phone call. */
@@ -169,7 +196,7 @@ class CallController(
             codec = Hello.CODEC_ADPCM,
             sessionId = sessionId,
             riderName = settings.riderName,
-            capabilities = Capabilities.LOCAL,
+            capabilities = Capabilities.local(opusAvailable),
         )
 
         val arb = FloorArbiter(sessionId, floorActions)
@@ -191,6 +218,9 @@ class CallController(
         l.setOnMessage(::onMessage)
         l.start()
 
+        player.preferOboe = !settings.legacyAudioPath
+        player.onStatus = ::onAudioStatus
+        jitter.decoder = codec
         if (!player.start()) {
             fail("Could not open the audio output")
             return
@@ -200,6 +230,8 @@ class CallController(
             audioManager = audioManager,
             source = settings.micSource,
             noiseSuppression = settings.noiseSuppression,
+            useOboe = !settings.legacyAudioPath,
+            onStatus = ::onAudioStatus,
             onFrame = ::onMicFrame,
         )
         if (!m.start()) {
@@ -210,6 +242,32 @@ class CallController(
 
         observeLink(l)
         startTicker(l, arb)
+    }
+
+    /** Switches to the codec both phones agreed on. Idempotent, and a no-op for ADPCM. */
+    private fun selectCodec(f: NegotiatedFeatures) {
+        val wanted = CodecChoice.choose(f.codec, opusAvailable)
+        val current = codec
+        if (wanted == current.id) return
+
+        val next: AudioCodec = if (wanted == CodecId.Opus) {
+            val engine = NativeOpusEngine(bitratePolicy.bitrate)
+            if (engine.usable) OpusCodec(engine, bitratePolicy.bitrate)
+            else { engine.release(); AdpcmAudioCodec() }
+        } else {
+            AdpcmAudioCodec()
+        }
+        // Decoder state does not carry across codecs, so start the jitter buffer clean.
+        jitter.decoder = next
+        jitter.reset()
+        codec = next
+        current.release()
+    }
+
+    /** Mic or speaker stream being recovered after a route change; shown to the rider. */
+    private fun onAudioStatus(message: String) {
+        if (message.isNotEmpty()) update { it.copy(statusText = message) }
+        else link?.status?.value?.let { s -> update { it.copy(statusText = s) } }
     }
 
     private fun observeLink(l: PeerLink) {
@@ -243,8 +301,10 @@ class CallController(
             l.peerHello.collect { h ->
                 update { it.copy(peerName = h?.riderName) }
                 if (h != null) {
-                    features = NegotiatedFeatures.negotiate(Capabilities.LOCAL, h)
-                    Log.i(TAG, "buddy v${h.version}, features: $features")
+                    val f = NegotiatedFeatures.negotiate(Capabilities.local(opusAvailable), h)
+                    features = f
+                    selectCodec(f)
+                    Log.i(TAG, "buddy v${h.version}, features: $f, codec=${codec.id}")
                 }
             }
         }
@@ -276,6 +336,9 @@ class CallController(
                             "late=${jitter.lateFrames} underruns=${jitter.underruns} " +
                             "micRms=${micRms.toInt()} vadMargin=%.1fdB ".format(vad.lastMarginDb) +
                             "trackUnderruns=${player.trackUnderruns} " +
+                            "codec=${codec.id}@${codec.bitrate} fecPlc=${jitter.codecConcealed} " +
+                            "undecodable=${jitter.undecodable} codecMismatch=$codecMismatches " +
+                            "io=${mic?.path}/${player.path} " +
                             "dropSend=${selector?.droppedSends ?: 0} " +
                             "ns=${mic?.noiseSuppression} hwfx=${mic?.platformEffectsReport} " +
                             "focus=${focus.isHeld} ptt=${arb.pushToTalk} " +
@@ -283,6 +346,7 @@ class CallController(
                     )
                 }
                 if (ticks % STATUS_EVERY_TICKS == 0L) {
+                    adaptBitrate(l)
                     update {
                         it.copy(
                             floor = arb.state.value,
@@ -298,6 +362,23 @@ class CallController(
                 }
             }
         }
+    }
+
+    /**
+     * Once a second: feed the link's recent loss and RTT to the bitrate policy and apply
+     * what it says. Loss is measured over the last second, not since the call began, so
+     * the rate recovers when the link does.
+     */
+    private fun adaptBitrate(l: PeerLink) {
+        val lost = jitter.lostFrames
+        val played = jitter.playedFrames
+        val dLost = lost - prevLost
+        val dPlayed = played - prevPlayed
+        prevLost = lost
+        prevPlayed = played
+        val total = dLost + dPlayed
+        val windowLoss = if (total <= 0) 0.0 else dLost * 100.0 / total
+        codec.setBitrate(bitratePolicy.onSample(windowLoss, l.rttMillis.value))
     }
 
     // --------------------------------------------------------------- send path
@@ -360,9 +441,11 @@ class CallController(
     }
 
     private fun sendAudio(l: PeerLink, frame: ShortArray) {
-        val payload = encoder.encodeFrame(frame)
+        val c = codec
+        val n = c.encode(frame, txBuf)
+        if (n <= 0) return
         val seq = audioSeq.getAndIncrement() and 0xFFFF
-        l.send(Codec.encode(Protocol.TYPE_AUDIO, seq, 0, payload))
+        l.send(Codec.encode(Protocol.TYPE_AUDIO, seq, c.wireFlag, txBuf.copyOf(n)))
     }
 
     // ------------------------------------------------------------ receive path
@@ -375,11 +458,15 @@ class CallController(
                 // Any frame from the holder refreshes the watchdog that would otherwise
                 // free the floor after a link drop mid-sentence.
                 arb.onRemoteAudio()
-                val n = AdpcmCodec.decodeFrame(m.payload, decodeBuf)
-                if (n > 0) {
-                    jitter.put(m.seq, decodeBuf.copyOf(n))
-                    focus.duck()
+                // The flags byte names the codec. A frame from a codec we are not running
+                // (a mid-call mismatch, or a buggy peer) is dropped rather than decoded.
+                if (m.flags != codec.wireFlag) {
+                    codecMismatches++
+                    return
                 }
+                // Decoding happens at playout, so the codec can conceal a missing frame.
+                jitter.putPayload(m.seq, m.payload)
+                focus.duck()
             }
             Protocol.TYPE_FLOOR_TAKEN -> {
                 val remoteTs = Codec.readLong(m.payload, 0)
@@ -539,7 +626,16 @@ class CallController(
         arbiter?.reset()
         arbiter = null
         preroll.clear()
-        encoder.reset()
+        // Hand back to ADPCM so the next call starts from the original, and free the
+        // native Opus state now that nothing is using it.
+        jitter.decoder = null
+        val finished = codec
+        codec = AdpcmAudioCodec()
+        finished.release()
+        features = NegotiatedFeatures.LEGACY
+        bitratePolicy.reset()
+        prevLost = 0
+        prevPlayed = 0
         update {
             it.copy(
                 phase = CallPhase.Ended,
