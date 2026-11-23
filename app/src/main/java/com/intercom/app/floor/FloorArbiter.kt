@@ -223,6 +223,20 @@ class FloorArbiter(
         lastHolderAudioAt = nowMs()
     }
 
+    /**
+     * The rider muted their mic. Give up the floor if this rider holds it and drop push-to-talk;
+     * if someone else holds it, leave that alone: muting is about what this rider sends.
+     */
+    @Synchronized
+    fun releaseForMute() {
+        pushToTalk = false
+        if (_state.value == FloorState.Talking) {
+            actions.sendFloorRelease()
+            moveTo(FloorState.Idle)
+            _holderName.value = null
+        }
+    }
+
     /** The link went away. Nobody holds the floor any more. */
     @Synchronized
     fun onLinkLost() {

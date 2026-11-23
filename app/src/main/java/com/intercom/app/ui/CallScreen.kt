@@ -70,6 +70,10 @@ fun CallScreen(
     onSettings: () -> Unit,
     onPeerMute: (id: Int, muted: Boolean) -> Unit = { _, _ -> },
     distanceUnit: DistanceUnit = DistanceUnit.Kilometres,
+    onToggleMute: () -> Unit = {},
+    onToggleDeafen: () -> Unit = {},
+    onSendSos: () -> Unit = {},
+    onDismissSosOut: () -> Unit = {},
 ) = WithAccents(host = status.isHost) {
     val accents = LocalAccents.current
     val stateColor = when {
@@ -123,6 +127,7 @@ fun CallScreen(
         }
 
         SecurityNotice(status)
+        PeerStatusNote(status)
 
         // ---- the dial -----------------------------------------------------------
         Spacer(Modifier.height(26.dp))
@@ -255,6 +260,11 @@ fun CallScreen(
 
         Spacer(Modifier.height(16.dp))
 
+        // ---- mute and deafen -----------------------------------------------------
+        MuteDeafenRow(status, onToggleMute, onToggleDeafen)
+
+        Spacer(Modifier.height(16.dp))
+
         // ---- live mic level ------------------------------------------------------
         Box(Modifier.padding(horizontal = 16.dp)) {
             BrandCard(Modifier.fillMaxWidth()) {
@@ -356,6 +366,10 @@ fun CallScreen(
         }
 
         Spacer(Modifier.height(18.dp))
+
+        SosControl(status, onSend = onSendSos, onDismissOut = onDismissSosOut)
+
+        Spacer(Modifier.height(14.dp))
 
         Box(Modifier.padding(horizontal = 16.dp)) {
             Column {

@@ -2,6 +2,7 @@ package com.intercom.app.media
 
 import android.content.Context
 import android.content.Intent
+import android.media.AudioManager
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
@@ -9,6 +10,7 @@ import android.support.v4.media.session.MediaSessionCompat
 import android.support.v4.media.session.PlaybackStateCompat
 import android.util.Log
 import android.view.KeyEvent
+import androidx.media.VolumeProviderCompat
 
 /** Gestures the app can recognise on a headset's main button. */
 enum class ButtonGesture { Single, Double, Triple, LongPress }
@@ -31,6 +33,8 @@ class ButtonSession(
     private val onGesture: (ButtonGesture) -> Unit,
     /** Raw key codes, for the settings calibration screen. */
     private val onRawKey: (Int) -> Unit = {},
+    /** A volume key, while [volumeKeys] is on: true for up, false for down. */
+    private val onVolumeKey: (up: Boolean) -> Unit = {},
 ) {
     companion object {
         private const val TAG = "ButtonSession"
@@ -39,6 +43,9 @@ class ButtonSession(
 
         /** How long the app keeps the session after a floor change. */
         const val RECLAIM_WINDOW_MS = 2000L
+
+        /** Holding a volume key repeats it; only one press in this window counts. */
+        private const val VOLUME_DEBOUNCE_MS = 450L
     }
 
     private val handler = Handler(Looper.getMainLooper())
@@ -49,6 +56,39 @@ class ButtonSession(
     private var longFired = false
     private var pendingMulti: Runnable? = null
     private var pendingLong: Runnable? = null
+    private var lastVolumeAt = 0L
+    private var claimed = false
+
+    /**
+     * Route the volume keys to the app instead of the system while the session is active.
+     * This is how a phone's volume buttons, or a Bluetooth handlebar remote that sends them,
+     * can drive push-to-talk. The price is that they stop changing the volume, so it is a
+     * setting the rider turns on, and the session is then kept for the whole call.
+     */
+    @Volatile var volumeKeys: Boolean = false
+        set(value) {
+            field = value
+            if (claimed) applyVolumeRouting()
+        }
+
+    /** Keep the session for the whole call instead of handing it back after each floor change. */
+    @Volatile var holdSession: Boolean = false
+
+    private val volumeProvider = object : VolumeProviderCompat(VOLUME_CONTROL_RELATIVE, 100, 50) {
+        override fun onAdjustVolume(direction: Int) {
+            if (direction == 0) return
+            val now = SystemClock.uptimeMillis()
+            if (now - lastVolumeAt < VOLUME_DEBOUNCE_MS) return
+            lastVolumeAt = now
+            onRawKey(if (direction > 0) KeyEvent.KEYCODE_VOLUME_UP else KeyEvent.KEYCODE_VOLUME_DOWN)
+            onVolumeKey(direction > 0)
+        }
+    }
+
+    private fun applyVolumeRouting() {
+        if (volumeKeys) session.setPlaybackToRemote(volumeProvider)
+        else session.setPlaybackToLocal(AudioManager.STREAM_MUSIC)
+    }
 
     init {
         session.setCallback(object : MediaSessionCompat.Callback() {
@@ -137,11 +177,15 @@ class ButtonSession(
      */
     fun claim() {
         session.isActive = true
+        claimed = true
+        applyVolumeRouting()
         setPlaybackState(PlaybackStateCompat.STATE_PLAYING)
     }
 
     /** Hands the button back to the music app. */
     fun release() {
+        claimed = false
+        session.setPlaybackToLocal(AudioManager.STREAM_MUSIC)
         setPlaybackState(PlaybackStateCompat.STATE_STOPPED)
         session.isActive = false
     }
@@ -149,7 +193,8 @@ class ButtonSession(
     /** Takes the button briefly after a floor change, then gives it back. */
     fun claimBriefly() {
         claim()
-        handler.postDelayed({ release() }, RECLAIM_WINDOW_MS)
+        if (holdSession) return
+        handler.postDelayed({ if (!holdSession) release() }, RECLAIM_WINDOW_MS)
     }
 
     private fun setPlaybackState(state: Int) {

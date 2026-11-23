@@ -52,6 +52,15 @@ class VoicePlayer(
     private var thread: Thread? = null
     private var track: AudioTrack? = null
 
+    /**
+     * Deafened: the voice is dropped (still consumed, so the buffer does not back up) and
+     * nothing from the buddy is heard. Alerts below are mixed after this on purpose.
+     */
+    @Volatile var deafened: Boolean = false
+
+    /** Link tones and the SOS siren, mixed into the same stream. Local only. */
+    val alerts = AlertSequencer()
+
     /** Linear gain on the voice. Raised when the rider chooses not to duck the music. */
     @Volatile var gain: Float = 1.0f
 
@@ -179,7 +188,7 @@ class VoicePlayer(
     /** Pulls the next 20 ms from the jitter buffer and applies gain and the mute beep. */
     private fun produceFrame(frame: ShortArray) {
         val got = source.take(frame)
-        if (!got) frame.fill(0)
+        if (!got || deafened) frame.fill(0)
 
         val g = gain
         if (g != 1.0f) {
@@ -190,6 +199,7 @@ class VoicePlayer(
 
         // The mute beep is mixed into the same stream, never played on its own track.
         beeper.mixInto(frame)
+        alerts.mixInto(frame)
 
         var sum = 0.0
         for (s in frame) sum += (s.toInt() * s.toInt()).toDouble()

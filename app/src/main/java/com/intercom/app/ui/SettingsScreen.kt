@@ -1,6 +1,7 @@
 package com.intercom.app.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Arrangement
@@ -24,6 +25,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.intercom.app.audio.MicSource
 import com.intercom.app.audio.NoiseEngine
@@ -32,6 +35,8 @@ import com.intercom.app.audio.WindCutFilter
 import com.intercom.app.floor.VadSensitivity
 import com.intercom.app.location.DistanceFormat
 import com.intercom.app.location.DistanceUnit
+import com.intercom.app.media.ButtonInput
+import com.intercom.app.media.ButtonMapping
 import com.intercom.app.util.Settings as RiderSettings
 import com.intercom.app.util.TalkMode
 import com.intercom.app.util.TransportPreference
@@ -366,6 +371,68 @@ fun SettingsScreen(
                     "which the app cannot change.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = IntercomColors.dim,
+            )
+        }
+
+        SectionCard(title = "Remote buttons") {
+            Text(
+                "Tap a row to change what it does. Press-and-hold gestures depend on your " +
+                    "headset, so check them with the key code line above.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = IntercomColors.dim,
+            )
+            ButtonInput.entries.filter {
+                settings.volumeKeys || (it != ButtonInput.VolumeUp && it != ButtonInput.VolumeDown)
+            }.forEach { input ->
+                val action = settings.buttons.actionFor(input)
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .clickable(role = Role.Button, onClick = {
+                            onChange { it.copy(buttons = it.buttons.with(input, action.next())) }
+                        })
+                        .padding(vertical = 8.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    Text(input.label, style = MaterialTheme.typography.bodyLarge)
+                    Text(
+                        action.label,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = Brand.Accent,
+                        modifier = Modifier.weight(1f).padding(start = 12.dp),
+                        textAlign = TextAlign.End,
+                    )
+                }
+            }
+            ToggleRow(
+                checked = settings.volumeKeys,
+                title = "Use the volume buttons during a call",
+                subtitle = "While a call is running the volume buttons stop changing the " +
+                    "volume and do what is set above instead, and the headset play/pause " +
+                    "button is taken by the intercom too. Off by default.",
+                onChange = { v -> onChange { it.copy(volumeKeys = v) } },
+            )
+            SecondaryButton(
+                text = "Reset buttons to defaults",
+                onClick = { onChange { it.copy(buttons = ButtonMapping()) } },
+                height = 46.dp,
+            )
+        }
+
+        SectionCard(title = "Music and tones") {
+            ToggleRow(
+                checked = settings.duckWhenITalk,
+                title = "Lower music when I talk too",
+                subtitle = "Music always lowers while your buddy speaks. Turn this on to lower " +
+                    "it while you speak as well.",
+                onChange = { v -> onChange { it.copy(duckWhenITalk = v) } },
+            )
+            ToggleRow(
+                checked = settings.linkTones,
+                title = "Tones when the link drops and returns",
+                subtitle = "A short falling tone when the connection is lost, a rising one " +
+                    "when it comes back. The app keeps trying to reconnect either way.",
+                onChange = { v -> onChange { it.copy(linkTones = v) } },
             )
         }
 

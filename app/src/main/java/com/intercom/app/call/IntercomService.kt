@@ -20,7 +20,9 @@ import com.intercom.app.R
 import com.intercom.app.RiderIntercomApp
 import com.intercom.app.discovery.HostBeacon
 import com.intercom.app.floor.FloorState
+import com.intercom.app.media.ButtonAction
 import com.intercom.app.media.ButtonGesture
+import com.intercom.app.media.ButtonInput
 import com.intercom.app.media.ButtonSession
 import com.intercom.app.transport.LinkRole
 import com.intercom.app.util.Permissions
@@ -56,6 +58,7 @@ class IntercomService : Service() {
         const val ACTION_TOGGLE_PTT = "com.intercom.app.TOGGLE_PTT"
         const val ACTION_TOGGLE_MUTE = "com.intercom.app.TOGGLE_MUTE"
         const val ACTION_CYCLE_NS = "com.intercom.app.CYCLE_NS"
+        const val ACTION_TOGGLE_DEAFEN = "com.intercom.app.TOGGLE_DEAFEN"
 
         const val EXTRA_GROUP = "group"
         const val EXTRA_PRIORITY = "priority"
@@ -66,6 +69,7 @@ class IntercomService : Service() {
         const val ROLE_CLIENT = "client"
 
         private const val NOTIFICATION_ID = 42
+        private const val SOS_NOTIFICATION_ID = 44
 
         /** Live handle for the UI. Null when no call is running. */
         private val _instance = MutableStateFlow<IntercomService?>(null)
@@ -134,9 +138,20 @@ class IntercomService : Service() {
             }
         }
 
+        // Volume keys as push-to-talk is opt-in and changes what the volume buttons do, so the
+        // session is only held (and the keys only taken) while the rider has it switched on.
+        scope.launch {
+            app.prefs.settings.map { it.volumeKeys }.distinctUntilChanged().collect { on ->
+                buttons?.volumeKeys = on
+                buttons?.holdSession = on
+                if (on) buttons?.claim()
+            }
+        }
+
         scope.launch {
             controller.status.collect { s ->
                 updateNotification(s)
+                handleSosNotification(s)
                 // The intercom takes the headset button briefly around each floor change,
                 // then hands it straight back to the music app.
                 if (s.floor != FloorState.Idle) buttons?.claimBriefly()
@@ -150,7 +165,8 @@ class IntercomService : Service() {
             ACTION_STOP -> { stopCall(); return START_NOT_STICKY }
             ACTION_TOGGLE_PTT -> controller.togglePushToTalk()
             ACTION_CYCLE_NS -> controller.cycleNoiseSuppression()
-            ACTION_TOGGLE_MUTE -> controller.setPushToTalk(false)
+            ACTION_TOGGLE_MUTE -> controller.toggleMute()
+            ACTION_TOGGLE_DEAFEN -> controller.toggleDeafen()
             else -> if (!started) { stopSelf(); return START_NOT_STICKY }
         }
         // Never STICKY: the system would try to recreate a microphone-type service from
@@ -175,7 +191,15 @@ class IntercomService : Service() {
                 context = this,
                 onGesture = ::onButtonGesture,
                 onRawKey = { code -> _lastKeyCode.value = code },
-            ).also { it.claim() }
+                onVolumeKey = { up ->
+                    val input = if (up) ButtonInput.VolumeUp else ButtonInput.VolumeDown
+                    handleAction(app.prefs.current.buttons.actionFor(input))
+                },
+            ).also {
+                it.volumeKeys = app.prefs.current.volumeKeys
+                it.holdSession = app.prefs.current.volumeKeys
+                it.claim()
+            }
         }
 
         val group = intent.getBooleanExtra(EXTRA_GROUP, false)
@@ -201,11 +225,55 @@ class IntercomService : Service() {
      */
     private fun onButtonGesture(g: ButtonGesture) {
         Log.i(TAG, "headset gesture $g")
-        when (g) {
-            ButtonGesture.Single -> Unit // leave play/pause to the music app
-            ButtonGesture.Double -> controller.togglePushToTalk()
-            ButtonGesture.Triple, ButtonGesture.LongPress -> stopCall()
+        val app = application as RiderIntercomApp
+        handleAction(app.prefs.current.buttons.forGesture(g))
+    }
+
+    /** A button, remote or notification asked for [action]. */
+    private fun handleAction(action: ButtonAction) {
+        Log.i(TAG, "button action $action")
+        if (action == ButtonAction.EndCall) stopCall() else controller.perform(action)
+    }
+
+    // ----------------------------------------------------------------- SOS alert
+
+    private var lastSosAt: Long? = null
+
+    /**
+     * A received SOS has to reach a rider whose phone is in a pocket or locked. The call screen
+     * shows the banner when the app is in front; this makes the phone light up and show it
+     * when it is not, and takes the notification away again once it is dismissed.
+     */
+    private fun handleSosNotification(s: CallStatus) {
+        val sos = s.sosIn
+        val nm = getSystemService(NotificationManager::class.java)
+        if (sos == null) {
+            if (lastSosAt != null) {
+                lastSosAt = null
+                runCatching { nm.cancel(SOS_NOTIFICATION_ID) }
+            }
+            return
         }
+        if (lastSosAt == sos.atMs) return
+        lastSosAt = sos.atMs
+        val open = PendingIntent.getActivity(
+            this, 4,
+            Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_NEW_TASK),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+        )
+        val n = NotificationCompat.Builder(this, RiderIntercomApp.CHANNEL_ALERT)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setContentTitle("SOS from ${sos.from}")
+            .setContentText("Open the app to see where they are")
+            .setCategory(NotificationCompat.CATEGORY_ALARM)
+            .setPriority(NotificationCompat.PRIORITY_MAX)
+            // No coordinates here: a notification can be read on the lock screen.
+            .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
+            .setContentIntent(open)
+            .setFullScreenIntent(open, true)
+            .setAutoCancel(true)
+            .build()
+        runCatching { nm.notify(SOS_NOTIFICATION_ID, n) }
     }
 
     // ------------------------------------------------------------- foreground
@@ -292,7 +360,9 @@ class IntercomService : Service() {
             ),
         )
 
-        val floorText = when (status.floor) {
+        val floorText = if (status.deafened) "Deafened: you hear nothing and send nothing"
+        else if (status.micMuted) "Muted: your mic is off"
+        else when (status.floor) {
             FloorState.Talking -> "You are talking"
             FloorState.Muted -> "${status.peerName ?: "Buddy"} is talking"
             FloorState.Idle -> status.statusText
@@ -319,14 +389,20 @@ class IntercomService : Service() {
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
 
-        // Push-to-talk is only worth a notification slot when the rider is actually in
-        // that mode; in an open call the button would do nothing they want.
+        // Android shows three actions, so they are chosen: Stop is always last; Mute is always
+        // there and shows the real state; the middle slot is Talk in push-to-talk (the one
+        // control that mode needs) and Deafen otherwise. Noise cycling stays on the call screen
+        // and can be given to a headset button.
+        builder.addAction(
+            action(if (status.micMuted) "Unmute" else "Mute", ACTION_TOGGLE_MUTE, 5)
+        )
         if (settings.talkMode == TalkMode.PushToTalk) {
             builder.addAction(
                 action(if (status.pushToTalk) "Talking" else "Talk", ACTION_TOGGLE_PTT, 1)
             )
+        } else {
+            builder.addAction(action(if (status.deafened) "Undeafen" else "Deafen", ACTION_TOGGLE_DEAFEN, 6))
         }
-        builder.addAction(action("Noise: ${settings.noiseSuppression.label}", ACTION_CYCLE_NS, 3))
         // Stop is always last and always present: it is the one the rider reaches for
         // with a glove on, and it must never move around between states.
         builder.addAction(action("Stop", ACTION_STOP, 2))

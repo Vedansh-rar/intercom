@@ -50,6 +50,7 @@ import com.intercom.app.R
 import com.intercom.app.audio.MicSource
 import com.intercom.app.discovery.NearbyHost
 import com.intercom.app.audio.NoiseSuppression
+import com.intercom.app.util.LastRole
 import com.intercom.app.util.OemDetector
 import com.intercom.app.util.Settings as RiderSettings
 
@@ -298,6 +299,40 @@ private fun StartScreenContent(
                         fontSize = 14.sp, color = Brand.TextDim,
                     )
                     PrimaryButton("Turn on Bluetooth", true, onEnableBluetooth)
+                }
+            }
+        }
+
+        // ---- reconnect to the last buddy ----------------------------------------
+        val lastBuddy = settings.buddyName?.takeIf { it.isNotBlank() }
+        val lastDevice = bondedDevices.firstOrNull { it.address == settings.buddyAddress }
+        val canReconnect = ready && hasCode && !group && when (settings.lastRole) {
+            LastRole.Host -> true
+            LastRole.Client -> lastDevice != null
+            LastRole.None -> false
+        }
+        if (settings.lastRole != LastRole.None && !group && lastBuddy != null) {
+            Spacer(Modifier.height(10.dp))
+            Box(Modifier.padding(horizontal = 16.dp)) {
+                BrandCard(Modifier.fillMaxWidth()) {
+                    Text(
+                        "LAST RIDE",
+                        fontSize = 11.sp, letterSpacing = 1.6.sp,
+                        fontWeight = FontWeight.SemiBold, color = Brand.TextDim,
+                    )
+                    Text(
+                        if (settings.lastRole == LastRole.Host) "You hosted, $lastBuddy joined"
+                        else "You joined $lastBuddy",
+                        fontSize = 15.sp, color = Brand.TextPrimary,
+                    )
+                    PrimaryButton(
+                        text = "Reconnect to $lastBuddy",
+                        enabled = canReconnect,
+                        onClick = {
+                            if (settings.lastRole == LastRole.Host) onHost()
+                            else lastDevice?.let(onJoin)
+                        },
+                    )
                 }
             }
         }

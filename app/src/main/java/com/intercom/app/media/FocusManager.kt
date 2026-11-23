@@ -6,6 +6,7 @@ import android.media.AudioManager
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
+import com.intercom.app.floor.FloorState
 
 /**
  * Ducks the rider's music while someone is speaking, and gives it straight back.
@@ -37,6 +38,19 @@ class FocusManager(
      * volume under the voice, and the voice track is lifted by 6 dB to compensate.
      */
     @Volatile var takeFocus: Boolean = true
+
+    /** Duck the music while the rider is talking too, not only while the buddy is. Off by default. */
+    @Volatile var duckWhenITalk: Boolean = false
+
+    /**
+     * While deafened nothing is played to the rider, so the music is left alone and any duck
+     * in force is let go straight away.
+     */
+    @Volatile var deafened: Boolean = false
+        set(value) {
+            field = value
+            if (value) release()
+        }
 
     private val handler = Handler(Looper.getMainLooper())
     private var request: AudioFocusRequest? = null
@@ -80,13 +94,23 @@ class FocusManager(
     @Synchronized
     fun duck() {
         abandonPending?.let { handler.removeCallbacks(it); abandonPending = null }
-        if (!takeFocus || held) return
+        if (!takeFocus || deafened || held) return
 
         val req = request ?: buildRequest().also { request = it }
         val result = runCatching { audioManager.requestAudioFocus(req) }
             .getOrDefault(AudioManager.AUDIOFOCUS_REQUEST_FAILED)
         held = result == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
         Log.i(TAG, "duck requested, granted=$held")
+    }
+
+    /** The rider's own voice started: duck only if they asked for that. */
+    fun duckForLocal() {
+        if (duckWhenITalk) duck()
+    }
+
+    /** Follows the floor: duck while the policy says so, give the music back otherwise. */
+    fun applyFloor(state: FloorState) {
+        if (DuckPolicy.shouldDuck(state, duckWhenITalk, deafened)) duck() else undock()
     }
 
     /** Called when the floor is released. The hold-off runs before focus actually goes. */

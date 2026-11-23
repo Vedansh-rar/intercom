@@ -319,3 +319,71 @@ Auto preset (needs location sharing on)
       button): Auto switches itself off and stays off.
 - [ ] Auto is not saved as a changed strength: after ending the call the strength shown in
       Settings is the one you picked, not whatever Auto last chose.
+
+## Phase 7 (rider controls and safety)
+
+None of this has run on a phone. CI proves it compiles and the pure logic passes (SOS
+trigger, send schedule, dedupe, button mapping, duck policy, link tones, alert patterns).
+Note the phone model and Android version next to each item.
+
+### Mute and deafen
+- [ ] Mute button on the call screen: buddy stops hearing you, your mic bar goes flat, the
+      button shows "UNMUTE". Unmute: buddy hears you again within a second.
+- [ ] Mute while you are talking: the floor is released at once (buddy's dial leaves amber).
+- [ ] Deafen: you hear no voice from the intercom, the mic is off, and the buddy sees
+      "deafened". An incoming SOS siren still sounds.
+      Undeafen restores your previous mute state (muted-before stays muted).
+- [ ] Notification actions Mute/Unmute and Deafen/Undeafen change the same state as the
+      screen, with the screen on and off. Rotating or reopening the app keeps the state.
+- [ ] Buddy's phone shows "<name> is muted / deafened" within a few seconds.
+- [ ] Ending the call and starting another resets both to off.
+
+### Headset and volume keys
+- [ ] Default mapping: double press = push to talk, triple press = mute, long press = end
+      call. Triple press no longer ends the call.
+- [ ] Change a mapping in Settings (Remote buttons): the new action fires on the next press
+      without restarting the call.
+- [ ] Bluetooth media-key device other than your headset (handlebar remote, ring remote):
+      note which key codes arrive and whether the mapping works.
+- [ ] Volume keys opt-in OFF: volume buttons change the volume as normal during a call.
+- [ ] Volume keys opt-in ON: volume up = push to talk, volume down = mute, volume no longer
+      changes during the call, and goes back to normal after the call ends.
+- [ ] Headset play/pause with the opt-in ON is taken by the intercom for the whole call;
+      your music app's play/pause from the headset no longer works until the call ends.
+
+### Music ducking
+- [ ] Play music in another app. When the buddy speaks it lowers (not pauses) and returns
+      about 0.7 s after they stop. Your own speech does not lower it by default.
+- [ ] "Lower music when I talk too" ON: your speech lowers it as well.
+- [ ] Deafened: music is not lowered at all.
+- [ ] Apps that ignore ducking requests (note which): music stays loud, nothing breaks.
+- [ ] Group ride: ducking follows whoever holds the floor.
+
+### SOS
+- [ ] One tap arms the button ("TAP AGAIN TO SEND"); doing nothing disarms it after 5 s;
+      a second tap within 5 s sends. Pocket or glove taps cannot send on one touch.
+- [ ] Holding for 3 s sends; releasing early cancels, and the fill bar resets.
+- [ ] Sender sees "SOS sent with your last known position" (location sharing ON) or
+      "...without a position" (OFF), and the alert is repeated twice over about 5 s.
+- [ ] Receiver: full-screen red banner with name, distance and compass direction (if both
+      phones share location), coordinates, position age and time; siren plays and repeats
+      about every 9 s up to 6 times; Dismiss stops it.
+- [ ] Receiver deafened or muted: siren and banner still appear.
+- [ ] Receiver's phone locked, screen off: notification appears with the full-screen
+      intent and wakes the screen. Test on Android 14+, where the "full-screen notifications"
+      permission can be revoked per app; note what the phone does.
+- [ ] SOS with the link down: shows "waiting for the link", sends when the link returns,
+      and reports "not sent" after two minutes without one.
+- [ ] Buddy on a v1 build: the SOS button is disabled with an explanation.
+- [ ] Group ride: SOS reaches every rider, including muted ones, once each (no repeats
+      from the mesh).
+- [ ] No coordinates appear in the notification text, and nothing leaves the phones.
+
+### Link loss and reconnect
+- [ ] Walk the phones out of range: falling tone on loss, call keeps retrying (Bluetooth:
+      1, 2, 4, 8 s; Wi-Fi Direct: 2, 4, 8, 15 s), rising tone when the link is back.
+- [ ] A flaky link that drops and returns repeatedly does not play a tone storm (at most
+      one "lost" tone per 10 s).
+- [ ] "Link tones" OFF: no tones, reconnect still happens.
+- [ ] Start screen shows "Reconnect to <buddy>" after a call; as the joiner it needs the
+      buddy still paired, as the host it starts hosting again. Hidden for group rides.

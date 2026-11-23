@@ -49,6 +49,14 @@ Needs Google Play services. Two riders can leave Group ride off and nothing chan
 - You see distances only while you share your own: if sharing is off nothing is read, sent or kept, and positions sent to you are ignored.
 - The arrow uses your direction of travel, not the phone's compass, so it works in a tank bag or pocket, and it needs you to be moving (about 5 km/h or more). Standing still it shows a compass word instead.
 
+### Rider controls and safety
+
+- **Mute and Deafen** are on the call screen and in the notification. Mute stops your mic; Deafen stops what you hear and also mutes you. Your buddy sees "muted" or "deafened". The state belongs to the call and resets when it ends.
+- **Headset and remote buttons** can each be set to push to talk, mute, deafen, noise reduction, end call, or nothing (**Settings → Remote buttons**). Defaults: double press push to talk, triple press mute, long press end call. Any Bluetooth media-key device works. Volume buttons can be used too, but only if you switch that on, because while a call runs they then stop changing the volume.
+- **Music** lowers (it is not paused) while your buddy speaks and comes back after. A setting also lowers it while you speak.
+- **SOS** needs a deliberate act: tap the red button twice, or hold it for three seconds. It sends your last known position if you share location, otherwise just the alert, and repeats it twice because there is no acknowledgement. The other phone shows a full-screen banner and plays a siren until dismissed, even if muted or deafened. The position goes only over the phone-to-phone link and is never put in a notification. A buddy on an older build cannot receive it, and the button says so.
+- **Link loss**: a short falling tone when the link drops, a rising one when it returns, while the app keeps retrying on its own. **Reconnect to last buddy** appears on the start screen.
+
 ### Talk modes
 
 | Mode | How it works |

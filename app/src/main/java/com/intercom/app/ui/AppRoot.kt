@@ -1,6 +1,8 @@
 package com.intercom.app.ui
 
+import android.app.Activity
 import android.bluetooth.BluetoothDevice
+import android.content.ContextWrapper
 import android.content.Intent
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -8,6 +10,7 @@ import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -55,6 +58,7 @@ fun AppRoot(
     ) {
         // Android 15+ forces edge-to-edge and ignores setDecorFitsSystemWindows, so the
         // insets are applied here or the header draws under the status bar.
+        Box(Modifier.fillMaxSize()) {
         Box(Modifier.fillMaxSize().safeDrawingPadding()) {
             when (screen) {
                 Screen.Start -> StartScreen(
@@ -93,6 +97,10 @@ fun AppRoot(
                     onSettings = { onScreen(Screen.Settings) },
                     onPeerMute = { id, muted -> service?.controller?.setPeerMuted(id, muted) },
                     distanceUnit = settings.distanceUnit,
+                    onToggleMute = { service?.controller?.toggleMute() },
+                    onToggleDeafen = { service?.controller?.toggleDeafen() },
+                    onSendSos = { service?.controller?.triggerSos() },
+                    onDismissSosOut = { service?.controller?.dismissSosOut() },
                 )
 
                 Screen.Settings -> SettingsScreen(
@@ -134,6 +142,34 @@ fun AppRoot(
                 Screen.Hfp -> HfpScreen(
                     onBack = { onScreen(Screen.Settings) },
                 )
+            }
+        }
+
+        // A received SOS covers everything, on whatever screen the rider is on.
+        val sosIn = status.sosIn
+        ShowOverLockScreen(sosIn != null)
+        if (sosIn != null) {
+            SosBanner(sosIn, settings.distanceUnit, onDismiss = { service?.controller?.dismissSosIn() })
+        }
+        }
+    }
+}
+
+/** Lets the activity appear over the lock screen and wake the display while an SOS is up. */
+@Composable
+private fun ShowOverLockScreen(on: Boolean) {
+    val ctx = LocalContext.current
+    DisposableEffect(on) {
+        val activity = generateSequence(ctx) { (it as? ContextWrapper)?.baseContext }
+            .filterIsInstance<Activity>().firstOrNull()
+        if (on && activity != null) {
+            activity.setShowWhenLocked(true)
+            activity.setTurnScreenOn(true)
+        }
+        onDispose {
+            if (on && activity != null) {
+                activity.setShowWhenLocked(false)
+                activity.setTurnScreenOn(false)
             }
         }
     }

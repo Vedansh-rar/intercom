@@ -3,6 +3,7 @@ package com.intercom.app.group
 import com.intercom.app.location.PositionTracker
 import com.intercom.app.protocol.Message
 import com.intercom.app.protocol.PeerInfo
+import com.intercom.app.protocol.SosAlert
 import com.intercom.app.protocol.PositionReport
 import com.intercom.app.protocol.Protocol
 
@@ -62,6 +63,13 @@ class GroupNode(
      */
     @Volatile var positionsEnabled: Boolean = true
 
+    /**
+     * An SOS from another rider: their sender ID, name if known, and the alert. Called for
+     * every copy that reaches this phone (the mesh drops exact duplicates, but a resend is a
+     * new message), so the receiver deduplicates.
+     */
+    @Volatile var onSos: (senderId: Int, name: String?, alert: SosAlert) -> Unit = { _, _, _ -> }
+
     @Volatile var relayed = 0L; private set
     @Volatile var dropped = 0L; private set
     @Volatile var droppedStale = 0L; private set
@@ -114,7 +122,11 @@ class GroupNode(
             Protocol.TYPE_POSITION -> if (positionsEnabled) {
                 PositionReport.parse(env.body)?.let { positions.onReport(env.senderId, it, env.ageMs.toLong()) }
             }
-            else -> Unit // SOS and anything newer: later phases, or ignored
+            // An SOS is for everyone, so it is delivered even from a rider muted on this phone.
+            Protocol.TYPE_SOS -> SosAlert.parse(env.body)?.let {
+                onSos(env.senderId, peers.nameOf(env.senderId), it)
+            }
+            else -> Unit // anything newer: ignored
         }
         onChanged()
     }
@@ -181,6 +193,9 @@ class GroupNode(
     /** Sends our position to the group (relayed like everything else). True if anyone got it. */
     fun sendPosition(report: PositionReport): Boolean =
         originate(Protocol.TYPE_POSITION, 0, report.toBytes()) > 0
+
+    /** Sends an SOS to the group (relayed like everything else). True if anyone got it. */
+    fun sendSos(alert: SosAlert): Boolean = originate(Protocol.TYPE_SOS, 0, alert.toBytes()) > 0
 
     /** Announces this phone's name and priority to the group. */
     fun beacon() {

@@ -7,7 +7,6 @@ import com.intercom.app.audio.AudioConstants
 import com.intercom.app.audio.Beeper
 import com.intercom.app.audio.NativeOpusEngine
 import com.intercom.app.audio.OpusCodec
-import com.intercom.app.floor.FloorState
 import com.intercom.app.floor.Vad
 import com.intercom.app.floor.VadEvent
 import com.intercom.app.media.FocusManager
@@ -92,8 +91,9 @@ class GroupCall(
             }
         }
         node.onChanged = {
-            // Music is ducked while anyone holds the floor, and let go when it is free.
-            if (node.floor.state() == FloorState.Idle) focus.undock() else focus.duck()
+            // Music is ducked while another rider holds the floor (and while this one does, if
+            // the rider asked), and let go when it is free.
+            focus.applyFloor(node.floor.state())
             onChanged()
         }
         node.onChannelFree = { if (prefs.current.beepWhenMuted) beeper.request() }
@@ -118,6 +118,18 @@ class GroupCall(
     }
 
     fun setPushToTalk(down: Boolean) { pushToTalkDown = down }
+
+    /** The rider muted their mic: stop talking now and forget anything captured before. */
+    fun stopTalkingForMute() {
+        pushToTalkDown = false
+        vadOpen = false
+        preroll.clear()
+        vad.reset()
+        node.localStopped()
+    }
+
+    /** Sends an SOS to the group. True if at least one neighbour got it. */
+    fun sendSos(alert: com.intercom.app.protocol.SosAlert): Boolean = node.sendSos(alert)
 
     /** After the audio route was rebuilt: nothing captured before it is worth sending. */
     fun resetCapture() {
@@ -166,7 +178,7 @@ class GroupCall(
         when (node.localSpeaking()) {
             GroupFloor.LocalResult.NewlyGranted, GroupFloor.LocalResult.Preempted -> {
                 wasWaiting = false
-                focus.duck()
+                focus.duckForLocal()
                 flushPreroll()
                 send(frame)
             }

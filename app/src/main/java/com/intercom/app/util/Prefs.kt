@@ -7,6 +7,9 @@ import com.intercom.app.audio.NoiseEngine
 import com.intercom.app.audio.NoiseSuppression
 import com.intercom.app.audio.WindCutFilter
 import com.intercom.app.floor.VadSensitivity
+import com.intercom.app.media.ButtonAction
+import com.intercom.app.media.ButtonInput
+import com.intercom.app.media.ButtonMapping
 import com.intercom.app.location.DistanceUnit
 import java.util.Locale
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -87,7 +90,23 @@ data class Settings(
     val fallingBehindAlert: Boolean = false,
     val fallingBehindMeters: Int = 500,
     val fallingBehindSeconds: Int = 20,
+    /** What each headset or remote button gesture does. */
+    val buttons: ButtonMapping = ButtonMapping(),
+    /**
+     * Use the phone's volume keys (and a Bluetooth remote's) as push-to-talk and mute during a
+     * call. Opt-in, because while it is on the volume buttons stop changing the volume.
+     */
+    val volumeKeys: Boolean = false,
+    /** Lower the music while I am talking too, not only while the buddy is. */
+    val duckWhenITalk: Boolean = false,
+    /** Play a short tone when the link drops and another when it comes back. */
+    val linkTones: Boolean = true,
+    /** How the last call started, for "Reconnect": [LastRole.Host] or [LastRole.Client]. */
+    val lastRole: LastRole = LastRole.None,
 )
+
+/** The side of the last two-rider call, remembered so the Start screen can offer to redo it. */
+enum class LastRole { None, Host, Client }
 
 /** Thin SharedPreferences wrapper that publishes the whole [Settings] as a flow. */
 class Prefs(context: Context) {
@@ -139,7 +158,22 @@ class Prefs(context: Context) {
         fallingBehindAlert = sp.getBoolean(K_BEHIND_ALERT, false),
         fallingBehindMeters = sp.getInt(K_BEHIND_M, 500),
         fallingBehindSeconds = sp.getInt(K_BEHIND_S, 20),
+        buttons = ButtonMapping(
+            single = buttonOf(K_BTN_SINGLE, ButtonAction.None),
+            double = buttonOf(K_BTN_DOUBLE, ButtonAction.PushToTalk),
+            triple = buttonOf(K_BTN_TRIPLE, ButtonAction.Mute),
+            long = buttonOf(K_BTN_LONG, ButtonAction.EndCall),
+            volumeUp = buttonOf(K_BTN_VOL_UP, ButtonAction.PushToTalk),
+            volumeDown = buttonOf(K_BTN_VOL_DOWN, ButtonAction.Mute),
+        ),
+        volumeKeys = sp.getBoolean(K_VOLUME_KEYS, false),
+        duckWhenITalk = sp.getBoolean(K_DUCK_OWN, false),
+        linkTones = sp.getBoolean(K_LINK_TONES, true),
+        lastRole = enumOf(sp.getString(K_LAST_ROLE, null), LastRole.None),
     )
+
+    private fun buttonOf(key: String, fallback: ButtonAction): ButtonAction =
+        enumOf(sp.getString(key, null), fallback)
 
     private inline fun <reified T : Enum<T>> enumOf(name: String?, fallback: T): T =
         name?.let { runCatching { enumValueOf<T>(it) }.getOrNull() } ?: fallback
@@ -172,6 +206,11 @@ class Prefs(context: Context) {
             putBoolean(K_BEHIND_ALERT, next.fallingBehindAlert)
             putInt(K_BEHIND_M, next.fallingBehindMeters)
             putInt(K_BEHIND_S, next.fallingBehindSeconds)
+            for (input in ButtonInput.entries) putString(buttonKey(input), next.buttons.actionFor(input).name)
+            putBoolean(K_VOLUME_KEYS, next.volumeKeys)
+            putBoolean(K_DUCK_OWN, next.duckWhenITalk)
+            putBoolean(K_LINK_TONES, next.linkTones)
+            putString(K_LAST_ROLE, next.lastRole.name)
         }.apply()
         secrets.edit().putString(K_RIDE_CODE, next.rideCode).apply()
         _settings.value = next
@@ -182,7 +221,26 @@ class Prefs(context: Context) {
         get() = sp.getBoolean(K_OEM_SHOWN, false)
         set(v) { sp.edit().putBoolean(K_OEM_SHOWN, v).apply() }
 
+    private fun buttonKey(input: ButtonInput): String = when (input) {
+        ButtonInput.Single -> K_BTN_SINGLE
+        ButtonInput.Double -> K_BTN_DOUBLE
+        ButtonInput.Triple -> K_BTN_TRIPLE
+        ButtonInput.Long -> K_BTN_LONG
+        ButtonInput.VolumeUp -> K_BTN_VOL_UP
+        ButtonInput.VolumeDown -> K_BTN_VOL_DOWN
+    }
+
     private companion object {
+        const val K_BTN_SINGLE = "btn_single"
+        const val K_BTN_DOUBLE = "btn_double"
+        const val K_BTN_TRIPLE = "btn_triple"
+        const val K_BTN_LONG = "btn_long"
+        const val K_BTN_VOL_UP = "btn_vol_up"
+        const val K_BTN_VOL_DOWN = "btn_vol_down"
+        const val K_VOLUME_KEYS = "volume_keys"
+        const val K_DUCK_OWN = "duck_own"
+        const val K_LINK_TONES = "link_tones"
+        const val K_LAST_ROLE = "last_role"
         const val K_NAME = "rider_name"
         const val K_BUDDY_ADDR = "buddy_addr"
         const val K_BUDDY_NAME = "buddy_name"

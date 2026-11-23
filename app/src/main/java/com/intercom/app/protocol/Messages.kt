@@ -97,18 +97,31 @@ class AuthResponse(val mac: ByteArray) {
     }
 }
 
-/** An SOS. [latE7]/[lonE7] are null when the sender is not sharing location. */
+/**
+ * An SOS. [latE7]/[lonE7] are null when the sender is not sharing location.
+ *
+ * [timestampMs] is when the alert was sent, on the sender's clock; it is the same in every
+ * resend, which is how the receiver tells a repeat from a new alert. [positionAgeSec] is how
+ * old the position already was when it was sent, rounded up to 5 s and capped at 635 s, or
+ * null if the sender did not say. It rides in the spare bits of the first byte, so a build
+ * that predates it reads the same message and simply ignores it.
+ */
 data class SosAlert(
     val latE7: Int?,
     val lonE7: Int?,
     val timestampMs: Long,
+    val positionAgeSec: Int? = null,
 ) {
     init { require((latE7 == null) == (lonE7 == null)) { "lat and lon go together" } }
 
     fun toBytes(): ByteArray {
         val has = latE7 != null && lonE7 != null
+        val ageUnits = if (has && positionAgeSec != null)
+            ((positionAgeSec + AGE_UNIT_SEC - 1) / AGE_UNIT_SEC).coerceIn(0, MAX_AGE_UNITS) + 1
+        else 0
+        val flags = (if (has) 1 else 0) or (ageUnits shl 1)
         return ByteBuffer.allocate(SIZE).order(ByteOrder.BIG_ENDIAN)
-            .put(if (has) 1 else 0)
+            .put(flags.toByte())
             .putInt(latE7 ?: 0)
             .putInt(lonE7 ?: 0)
             .putLong(timestampMs)
@@ -117,15 +130,21 @@ data class SosAlert(
 
     companion object {
         const val SIZE = 17
+        private const val AGE_UNIT_SEC = 5
+        // 7 spare bits: 0 means "not stated", 1..127 means 0..126 units.
+        private const val MAX_AGE_UNITS = 126
 
         fun parse(b: ByteArray): SosAlert? {
             if (b.size < SIZE) return null
             val buf = ByteBuffer.wrap(b).order(ByteOrder.BIG_ENDIAN)
-            val has = (buf.get().toInt() and 1) != 0
+            val flags = buf.get().toInt() and 0xFF
+            val has = (flags and 1) != 0
+            val units = flags ushr 1
             val lat = buf.int
             val lon = buf.int
             val ts = buf.long
-            return SosAlert(if (has) lat else null, if (has) lon else null, ts)
+            val age = if (has && units > 0) (units - 1) * AGE_UNIT_SEC else null
+            return SosAlert(if (has) lat else null, if (has) lon else null, ts, age)
         }
     }
 }

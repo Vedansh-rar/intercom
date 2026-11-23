@@ -6,6 +6,7 @@ import android.content.Context
 import android.media.AudioManager
 import android.util.Log
 import com.intercom.app.audio.AdpcmAudioCodec
+import com.intercom.app.audio.AlertKind
 import com.intercom.app.audio.AudioCodec
 import com.intercom.app.audio.AudioConstants
 import com.intercom.app.audio.AutoNoisePolicy
@@ -28,11 +29,13 @@ import com.intercom.app.floor.VadEvent
 import com.intercom.app.group.GroupCall
 import com.intercom.app.group.GroupLink
 import com.intercom.app.location.AndroidLocationProvider
+import com.intercom.app.location.Geo
 import com.intercom.app.location.LocationState
 import com.intercom.app.location.PositionCodec
 import com.intercom.app.location.PositionPolicy
 import com.intercom.app.location.PositionTracker
 import com.intercom.app.location.RideLocation
+import com.intercom.app.media.ButtonAction
 import com.intercom.app.media.FocusManager
 import com.intercom.app.protocol.AuthChallenge
 import com.intercom.app.protocol.AuthResponse
@@ -42,8 +45,12 @@ import com.intercom.app.protocol.CodecId
 import com.intercom.app.protocol.Hello
 import com.intercom.app.protocol.NegotiatedFeatures
 import com.intercom.app.protocol.Message
+import com.intercom.app.protocol.PeerInfo
 import com.intercom.app.protocol.PositionReport
 import com.intercom.app.protocol.Protocol
+import com.intercom.app.protocol.SosAlert
+import com.intercom.app.safety.SosReceiver
+import com.intercom.app.safety.SosSender
 import com.intercom.app.security.AuthSession
 import com.intercom.app.security.ChannelSecurity
 import com.intercom.app.security.FrameGate
@@ -57,6 +64,7 @@ import com.intercom.app.transport.LinkState
 import com.intercom.app.transport.PeerLink
 import com.intercom.app.transport.LinkSelector
 import com.intercom.app.transport.Transport
+import com.intercom.app.util.LastRole
 import com.intercom.app.util.Permissions
 import com.intercom.app.util.Prefs
 import com.intercom.app.util.Settings
@@ -105,6 +113,10 @@ class CallController(
         /** The challenge is re-sent until answered: the buddy may not have been ready for the first. */
         private const val AUTH_RESEND_MS = 700L
         private const val AUTH_TIMEOUT_MS = 15_000L
+
+        /** A received SOS sounds, then repeats every 9 seconds, 6 times in all, until dismissed. */
+        private const val SOS_SIREN_EVERY_MS = 9_000L
+        private const val SOS_SIREN_MAX_PLAYS = 6
     }
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -152,6 +164,20 @@ class CallController(
     }
 
     private var mic: MicCapture? = null
+
+    // ---- rider controls: mute, deafen, SOS, link tones. One copy of the truth, here, so the
+    // call screen, the notification and a headset button can never disagree.
+    @Volatile private var micMuted = false
+    @Volatile private var deafened = false
+    private var mutedBeforeDeafen = false
+    private val sosSender = SosSender()
+    private val sosReceiver = SosReceiver()
+    @Volatile private var sosAlert: SosAlert? = null
+    private var sosSirenReplays = 0
+    private var sosSirenNextAt = 0L
+    private val linkTones = LinkToneLogic()
+    private var announcedEpoch = -1
+    private var announcedStatus: PeerInfo.Status? = null
 
     /**
      * Everything location does for this call: GPS, sharing, distances, the falling-behind
@@ -225,8 +251,11 @@ class CallController(
             return
         }
         focus.takeFocus = settings.takeAudioFocus
+        focus.duckWhenITalk = settings.duckWhenITalk
         vad.sensitivity = settings.vadSensitivity
         applyVoiceLevel(settings.voiceLevelDb, settings.takeAudioFocus)
+        resetRiderControls()
+        prefs.update { it.copy(lastRole = if (role == LinkRole.Host) LastRole.Host else LastRole.Client) }
 
         startedAtMs = System.currentTimeMillis()
         update {
@@ -324,7 +353,9 @@ class CallController(
         if (throttle.isLocked) { fail("Too many wrong ride codes. Try again in ${secondsLeft()} s"); return }
 
         focus.takeFocus = settings.takeAudioFocus
+        focus.duckWhenITalk = settings.duckWhenITalk
         applyVoiceLevel(settings.voiceLevelDb, settings.takeAudioFocus)
+        resetRiderControls()
         startedAtMs = System.currentTimeMillis()
         update {
             it.copy(
@@ -380,6 +411,7 @@ class CallController(
             return
         }
         mic = m
+        g.node.onSos = ::onSosReceived
         observeGroup(g)
         startGroupTicker(g)
     }
@@ -432,10 +464,12 @@ class CallController(
             while (isActive) {
                 delay(TICK_MS)
                 g.tick()
-                _micLevel.value = ((mic?.lastRms ?: 0.0) / 6000.0).coerceIn(0.0, 1.0).toFloat()
+                sosTick()
+                _micLevel.value = if (micMuted) 0f else ((mic?.lastRms ?: 0.0) / 6000.0).coerceIn(0.0, 1.0).toFloat()
                 ticks++
                 if (ticks % STATUS_EVERY_TICKS == 0L) {
                     updateAutoNoise()
+                    refreshSosState()
                     publishGroup()
                     // A rider just came in range: tell them where we are now, not in a few seconds.
                     val ready = g.node.port.readyEndpoints().size
@@ -520,8 +554,24 @@ class CallController(
                         focus.undock()
                     }
                 }
+                if (prefs.current.linkTones) {
+                    when (linkTones.onState(st, selector?.switching?.value == true, System.currentTimeMillis())) {
+                        LinkTone.Lost -> player.alerts.play(AlertKind.LinkLost)
+                        LinkTone.Restored -> player.alerts.play(AlertKind.LinkRestored)
+                        null -> Unit
+                    }
+                } else {
+                    linkTones.onState(st, selector?.switching?.value == true, System.currentTimeMillis())
+                }
                 // After a security failure the link is closed on purpose; keep saying why.
-                update { it.copy(phase = if (terminal) CallPhase.Error else phase, link = st) }
+                update {
+                    it.copy(
+                        phase = if (terminal) CallPhase.Error else phase,
+                        link = st,
+                        // What the buddy said about themselves is only known while linked.
+                        peerStatus = if (st == LinkState.Connected) it.peerStatus else PeerInfo.Status.Ok,
+                    )
+                }
             }
         }
         scope.launch { l.status.collect { s -> if (!terminal) update { it.copy(statusText = s) } } }
@@ -547,10 +597,11 @@ class CallController(
             while (isActive) {
                 delay(TICK_MS)
                 arb.tick()
+                sosTick()
                 val micRms = mic?.lastRms ?: 0.0
                 // The switch rules run on this number, so it has to be current.
                 selector?.lossPercent = jitter.lossPercent()
-                _micLevel.value = (micRms / 6000.0).coerceIn(0.0, 1.0).toFloat()
+                _micLevel.value = if (micMuted) 0f else (micRms / 6000.0).coerceIn(0.0, 1.0).toFloat()
                 ticks++
 
                 // One greppable line every 5 s. On the road nobody is watching the
@@ -581,6 +632,8 @@ class CallController(
                 }
                 if (ticks % STATUS_EVERY_TICKS == 0L) {
                     updateAutoNoise()
+                    syncPeerStatus()
+                    refreshSosState()
                     adaptBitrate(l)
                     publishLocation()
                     update {
@@ -622,6 +675,8 @@ class CallController(
     /** Called on the capture thread, once per 20 ms. */
     private fun onMicFrame(frame: ShortArray) {
         if (suspendedForInterruption) return
+        // Muted or deafened: nothing leaves this phone, and the detector is not even fed.
+        if (micMuted) return
         group?.let { it.onMicFrame(frame); return }
         val arb = arbiter ?: return
         val l = link ?: return
@@ -649,7 +704,7 @@ class CallController(
                     val startMicros = System.nanoTime() / 1000L -
                         (AudioConstants.FRAME_MS * 1000L * vad.sensitivity.attackFrames)
                     if (arb.onVadOpen(startMicros)) {
-                        focus.duck()
+                        focus.duckForLocal()
                         flushPreroll(l)
                     }
                 }
@@ -734,6 +789,10 @@ class CallController(
                 stop()
             }
             Protocol.TYPE_POSITION -> onPosition(m)
+            Protocol.TYPE_SOS -> SosAlert.parse(m.payload)?.let { onSosReceived(0, _status.value.peerName, it) }
+            Protocol.TYPE_PEER_INFO -> PeerInfo.parse(m.payload)?.let { info ->
+                update { it.copy(peerStatus = info.status) }
+            }
             else -> Log.d(TAG, "ignoring ${Protocol.typeName(m.type)}")
         }
     }
@@ -774,7 +833,7 @@ class CallController(
 
         override fun onStateChanged(state: FloorState) {
             update { it.copy(floor = state, muted = state == FloorState.Muted) }
-            if (state == FloorState.Idle) focus.undock() else focus.duck()
+            focus.applyFloor(state)
         }
     }
 
@@ -1082,6 +1141,8 @@ class CallController(
     // ----------------------------------------------------------------- control
 
     fun setPushToTalk(down: Boolean) {
+        // A muted rider cannot take the floor by holding the button.
+        if (down && micMuted) return
         val g = group
         if (g != null) {
             g.setPushToTalk(down)
@@ -1089,7 +1150,7 @@ class CallController(
             return
         }
         arbiter?.setPushToTalk(down, _status.value.peerName)
-        if (down) focus.duck() else focus.undock()
+        if (down) focus.duckForLocal() else focus.undock()
         update { it.copy(pushToTalk = down) }
     }
 
@@ -1119,6 +1180,227 @@ class CallController(
         prefs.update { it.copy(noiseSuppression = next, autoNoise = false) }
         mic?.noiseSuppression = next
         return next
+    }
+
+    // ------------------------------------------------------------ mute and deafen
+
+    /**
+     * Turns this rider's own mic off or on. Nothing is sent while it is off, the floor is
+     * given up at once, and holding push-to-talk does nothing. Asking to unmute while deafened
+     * also ends the deafen, because hearing nothing while talking to nobody helps no one.
+     */
+    fun setMicMuted(muted: Boolean) {
+        if (deafened) {
+            if (muted) return
+            mutedBeforeDeafen = false
+            setDeafened(false)
+            return
+        }
+        applyMute(muted)
+    }
+
+    fun toggleMute() = setMicMuted(!micMuted)
+
+    /**
+     * Deafen: play nothing to this rider, leave their music alone, and mute the mic as well.
+     * Undeafening puts the mic back the way it was before.
+     */
+    fun setDeafened(on: Boolean) {
+        if (on == deafened) return
+        if (on) {
+            mutedBeforeDeafen = micMuted
+            deafened = true
+            applyMute(true)
+        } else {
+            deafened = false
+            applyMute(mutedBeforeDeafen)
+        }
+        player.deafened = on
+        focus.deafened = on
+        update { it.copy(deafened = on) }
+        syncPeerStatus()
+    }
+
+    fun toggleDeafen() = setDeafened(!deafened)
+
+    private fun applyMute(muted: Boolean) {
+        micMuted = muted
+        if (muted) {
+            arbiter?.releaseForMute()
+            group?.stopTalkingForMute()
+            preroll.clear()
+        } else {
+            vad.reset()
+            preroll.clear()
+        }
+        update { it.copy(micMuted = muted, pushToTalk = if (muted) false else it.pushToTalk) }
+        syncPeerStatus()
+    }
+
+    private fun resetRiderControls() {
+        micMuted = false
+        deafened = false
+        mutedBeforeDeafen = false
+        player.deafened = false
+        focus.deafened = false
+        sosSender.cancel()
+        sosAlert = null
+        linkTones.reset()
+        announcedEpoch = -1
+        announcedStatus = null
+        update { it.copy(micMuted = false, deafened = false, peerStatus = PeerInfo.Status.Ok, sosOut = null) }
+    }
+
+    /** What a headset button, a remote or the notification asked for. End call is the service's job. */
+    fun perform(action: ButtonAction) {
+        when (action) {
+            ButtonAction.None, ButtonAction.EndCall -> Unit
+            ButtonAction.PushToTalk -> togglePushToTalk()
+            ButtonAction.Mute -> toggleMute()
+            ButtonAction.Deafen -> toggleDeafen()
+            ButtonAction.CycleNoise -> cycleNoiseSuppression()
+        }
+    }
+
+    private fun myStatus(): PeerInfo.Status = when {
+        deafened -> PeerInfo.Status.Deafened
+        micMuted -> PeerInfo.Status.Muted
+        else -> PeerInfo.Status.Ok
+    }
+
+    /**
+     * Tells the buddy whether this rider is muted or deafened, so they know why nobody is
+     * answering. Sent on every change and again on every new connection. A v1 buddy would
+     * ignore it, so it is only sent to one that understands it.
+     */
+    private fun syncPeerStatus() {
+        val l = link ?: return
+        if (group != null || l.state.value != LinkState.Connected || !mediaAllowed()) return
+        if (features.peerVersion < 2) return
+        val st = myStatus()
+        val epoch = synchronized(securityLock) { connectionEpoch }
+        if (epoch == announcedEpoch && st == announcedStatus) return
+        val info = PeerInfo(st, prefs.current.riderName)
+        if (sendFrame(l, Protocol.TYPE_PEER_INFO, controlSeq.getAndIncrement() and 0xFFFF, 0, info.toBytes())) {
+            announcedEpoch = epoch
+            announcedStatus = st
+        }
+    }
+
+    // ------------------------------------------------------------------- SOS
+
+    /**
+     * The rider confirmed the SOS control. It goes out with the last known position when "Share
+     * my location" is on (and without one otherwise), is repeated a couple of times because
+     * there is no acknowledgement, and waits for the link if it is down at the moment.
+     */
+    fun triggerSos() {
+        if (!_status.value.sosAvailable) return
+        val now = System.currentTimeMillis()
+        val fix = rideLocation?.takeIf { it.enabled }?.tracker?.own()
+        val alert = if (fix != null && Geo.isValid(fix.lat, fix.lon)) {
+            val ageSec = ((System.nanoTime() / 1000L - fix.stampMicros) / 1_000_000L).toInt().coerceAtLeast(0)
+            SosAlert(
+                latE7 = Math.round(fix.lat * 1e7).toInt(),
+                lonE7 = Math.round(fix.lon * 1e7).toInt(),
+                timestampMs = now,
+                positionAgeSec = ageSec,
+            )
+        } else {
+            SosAlert(null, null, now)
+        }
+        Log.i(TAG, "SOS triggered, position=${alert.latE7 != null}")
+        sosAlert = alert
+        sosSender.start(now)
+        update { it.copy(sosOut = SosOutgoing(now, sent = false, withPosition = alert.latE7 != null)) }
+        sosTick()
+    }
+
+    /** The rider dismissed the "SOS sent" confirmation, or cancels one still waiting for a link. */
+    fun dismissSosOut() {
+        sosSender.cancel()
+        sosAlert = null
+        update { it.copy(sosOut = null) }
+    }
+
+    /** The rider dismissed a received SOS. Stops the siren. */
+    fun dismissSosIn() {
+        player.alerts.stop()
+        sosSirenNextAt = 0L
+        update { it.copy(sosIn = null) }
+    }
+
+    /** Runs every 200 ms: the send schedule, and repeating the siren while an alert is up. */
+    private fun sosTick() {
+        val now = System.currentTimeMillis()
+        val a = sosAlert
+        if (a != null && sosSender.active) {
+            val g = group
+            val up = if (g != null) g.node.port.readyEndpoints().isNotEmpty()
+            else link?.state?.value == LinkState.Connected && mediaAllowed()
+            if (sosSender.due(now, up)) {
+                val ok = if (g != null) g.sendSos(a)
+                else link?.let { sendFrame(it, Protocol.TYPE_SOS, controlSeq.getAndIncrement() and 0xFFFF, 0, a.toBytes()) } ?: false
+                if (ok) update { s -> s.sosOut?.let { s.copy(sosOut = it.copy(sent = true)) } ?: s }
+            }
+            if (sosSender.finished && sosSender.gaveUp) {
+                update { s -> s.sosOut?.let { s.copy(sosOut = it.copy(failed = true)) } ?: s }
+            }
+        }
+        if (_status.value.sosIn != null && sosSirenReplays < SOS_SIREN_MAX_PLAYS && now >= sosSirenNextAt) {
+            player.alerts.play(AlertKind.Sos)
+            sosSirenReplays++
+            sosSirenNextAt = now + SOS_SIREN_EVERY_MS
+        }
+    }
+
+    /** From the link or the mesh. Deduplicates, then sounds the siren and raises the banner. */
+    private fun onSosReceived(sender: Int, name: String?, alert: SosAlert) {
+        val now = System.currentTimeMillis()
+        if (!sosReceiver.accept(sender, alert, now)) return
+        val lat = alert.latE7?.let { it / 1e7 }
+        val lon = alert.lonE7?.let { it / 1e7 }
+        val valid = lat != null && lon != null && Geo.isValid(lat, lon)
+        val from = name?.takeIf { it.isNotBlank() } ?: _status.value.peerName ?: "A rider"
+        Log.i(TAG, "SOS received, position=$valid")
+        sosSirenReplays = 0
+        sosSirenNextAt = 0L
+        update {
+            it.copy(
+                sosIn = SosIncoming(
+                    from = from,
+                    latDeg = if (valid) lat else null,
+                    lonDeg = if (valid) lon else null,
+                    atMs = alert.timestampMs,
+                    positionAgeSec = if (valid) alert.positionAgeSec else null,
+                ),
+            )
+        }
+        refreshSosState()
+        sosTick()
+    }
+
+    /** Once a second: where the SOS is relative to this rider now, and whether sending is possible. */
+    private fun refreshSosState() {
+        val phase = _status.value.phase
+        val inCall = phase == CallPhase.Active || phase == CallPhase.Reconnecting
+        val available = inCall && (group != null || features.peerVersion >= 2)
+        val inc = _status.value.sosIn
+        var meters: Double? = null
+        var bearing: Double? = null
+        if (inc?.latDeg != null && inc.lonDeg != null) {
+            val own = rideLocation?.takeIf { it.enabled }?.tracker?.own()
+            if (own != null) {
+                meters = Geo.distanceM(own.lat, own.lon, inc.latDeg, inc.lonDeg)
+                bearing = Geo.bearingDeg(own.lat, own.lon, inc.latDeg, inc.lonDeg)
+            }
+        }
+        update {
+            it.copy(
+                sosAvailable = available,
+                sosIn = it.sosIn?.copy(meters = meters, bearingDeg = bearing),
+            )
+        }
     }
 
     // ---- Auto noise preset and the other Phase 6 audio settings
@@ -1180,6 +1462,7 @@ class CallController(
         // Noise settings change on the next frame; no call restart.
         mic?.let { applyNoiseSettings(it, s) }
         focus.takeFocus = s.takeAudioFocus
+        focus.duckWhenITalk = s.duckWhenITalk
         applyVoiceLevel(s.voiceLevelDb, s.takeAudioFocus)
         group?.applySettings()
         rideLocation?.configure(s.shareLocation, Permissions.hasLocation(context))
@@ -1228,6 +1511,8 @@ class CallController(
         }
         terminal = false
         rideCode = null
+        resetRiderControls()
+        player.alerts.stop()
         bitratePolicy.reset()
         prevLost = 0
         prevPlayed = 0
@@ -1244,6 +1529,7 @@ class CallController(
                 location = LocationState.Off,
                 buddy = null,
                 fallingBehind = false,
+                sosAvailable = false,
             )
         }
     }
