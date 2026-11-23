@@ -26,18 +26,41 @@ import com.intercom.app.call.IntercomService
 import com.intercom.app.transport.LinkRole
 import com.intercom.app.util.OemDetector
 import com.intercom.app.util.Permissions
+import android.widget.Toast
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import com.intercom.app.R
+import com.intercom.app.diagnostics.LogExporter
+import com.intercom.app.selftest.SelfTest
+import com.intercom.app.util.AppLanguage
+import com.intercom.app.util.Localized
 import com.intercom.app.util.Prefs
 
 /** Where in the app the rider is. */
-enum class Screen { Start, Call, Settings, Oem, Hfp }
+enum class Screen { Start, Call, Settings, Oem, Hfp, Onboarding, Summary }
 
 class MainActivity : ComponentActivity() {
+
+    private companion object {
+        const val KEY_SCREEN = "screen"
+    }
 
     private lateinit var prefs: Prefs
     private var adapter: BluetoothAdapter? = null
 
     private var permissionsGranted by mutableStateOf(false)
     private var screen by mutableStateOf(Screen.Start)
+
+    /** Bumped whenever a grant might have changed, so screens that show grants re-read them. */
+    private var permissionVersion by mutableStateOf(0)
+
+    private var sharingLog by mutableStateOf(false)
+    private var selfTest: SelfTest? = null
+
+    /** Every string the rider sees comes from resources in the language chosen in Settings. */
+    override fun attachBaseContext(newBase: Context) {
+        super.attachBaseContext(Localized.context(newBase, Localized.languageOf(newBase)))
+    }
 
     /**
      * Scanning only runs while this screen is in front. A background scan would need its
@@ -51,6 +74,7 @@ class MainActivity : ComponentActivity() {
         ActivityResultContracts.RequestMultiplePermissions()
     ) { result ->
         permissionsGranted = result.values.all { it } || Permissions.allGranted(this)
+        permissionVersion++
     }
 
     /** True after the rider was asked for precise location and did not allow it. */
@@ -74,7 +98,7 @@ class MainActivity : ComponentActivity() {
 
     private val enableBluetooth = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
-    ) { /* state is re-read when the screen recomposes */ }
+    ) { permissionVersion++ }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
@@ -83,6 +107,17 @@ class MainActivity : ComponentActivity() {
         prefs = (application as RiderIntercomApp).prefs
         adapter = (getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager)?.adapter
         permissionsGranted = Permissions.allGranted(this)
+        // Comfort settings are plain snapshot state read by the colours and button sizes.
+        Comfort.apply(prefs.current.highContrast, prefs.current.largeButtons)
+        lifecycleScope.launch {
+            prefs.settings.collect { Comfort.apply(it.highContrast, it.largeButtons) }
+        }
+        // A rebuild (changing the language, rotating) should land the rider where they were.
+        savedInstanceState?.getString(KEY_SCREEN)
+            ?.let { name -> Screen.entries.firstOrNull { it.name == name } }
+            ?.let { screen = it }
+        // First run opens the walkthrough; every later launch goes straight to the start screen.
+        if (savedInstanceState == null && !prefs.onboardingDone) screen = Screen.Onboarding
 
         setContent {
             RiderIntercomTheme {
@@ -118,14 +153,65 @@ class MainActivity : ComponentActivity() {
                         askLocation.launch(Permissions.locationPermissions())
                     },
                     locationDenied = locationDenied,
+                    permissionVersion = permissionVersion,
+                    selfTest = selfTestInstance(),
+                    onAskPermissions = { list -> if (list.isNotEmpty()) askPermissions.launch(list.toTypedArray()) },
+                    onFinishOnboarding = {
+                        prefs.onboardingDone = true
+                        screen = Screen.Start
+                    },
+                    onLanguage = ::changeLanguage,
+                    onShareLog = ::shareLog,
+                    shareLogBusy = sharingLog,
                 )
             }
+        }
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        outState.putString(KEY_SCREEN, screen.name)
+    }
+
+    private fun selfTestInstance(): SelfTest =
+        selfTest ?: SelfTest(this) { prefs.current }.also { selfTest = it }
+
+    /**
+     * Saves the choice, renames the notification channels and rebuilds the activity so
+     * every screen is re-read in the new language.
+     */
+    private fun changeLanguage(language: AppLanguage) {
+        if (prefs.current.language == language) return
+        prefs.update { it.copy(language = language) }
+        (application as RiderIntercomApp).createChannels()
+        recreate()
+    }
+
+    /** Builds the redacted log off the main thread, then offers it to whatever app the rider picks. */
+    private fun shareLog() {
+        if (sharingLog) return
+        sharingLog = true
+        lifecycleScope.launch {
+            val file = withContext(Dispatchers.IO) {
+                runCatching { LogExporter.export(this@MainActivity, prefs.current) }.getOrNull()
+            }
+            sharingLog = false
+            if (file == null) {
+                Toast.makeText(this@MainActivity, R.string.set_share_log_failed, Toast.LENGTH_LONG).show()
+                return@launch
+            }
+            val send = LogExporter.shareIntent(
+                this@MainActivity, file,
+                getString(R.string.set_share_log_chooser), getString(R.string.set_share_log_subject),
+            )
+            runCatching { startActivity(send) }
         }
     }
 
     override fun onResume() {
         super.onResume()
         permissionsGranted = Permissions.allGranted(this)
+        permissionVersion++
         startScanning()
         // A call already running means the rider came back to the app mid-ride.
         if (IntercomService.instance.value != null &&
@@ -139,6 +225,7 @@ class MainActivity : ComponentActivity() {
     override fun onPause() {
         super.onPause()
         scanner?.stop()
+        selfTest?.stop()
     }
 
     private fun startScanning() {

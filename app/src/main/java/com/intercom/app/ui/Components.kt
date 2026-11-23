@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -50,6 +51,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
 
 /* ------------------------------------------------------------------ brand mark */
 
@@ -93,13 +96,13 @@ fun BrandHeader(
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
             Text(
-                "Rider Intercom",
+                stringResource(R.string.app_name_header),
                 fontSize = 24.sp,
                 fontWeight = FontWeight.Bold,
                 color = Brand.TextPrimary,
             )
             Text(
-                "RIDER-TO-RIDER VOICE",
+                stringResource(R.string.app_tagline),
                 fontSize = 10.sp,
                 letterSpacing = 3.sp,
                 fontWeight = FontWeight.Medium,
@@ -177,7 +180,7 @@ fun ActionTile(
         else -> Brand.TextPrimary
     }
     BrandCard(
-        modifier = modifier.height(136.dp),
+        modifier = modifier.heightIn(min = 136.dp),
         selected = selected && enabled,
         onClick = if (enabled) onClick else null,
         contentPadding = 14.dp,
@@ -436,7 +439,7 @@ fun PrimaryButton(
     Box(
         modifier
             .fillMaxWidth()
-            .height(height)
+            .heightIn(min = Comfort.buttonHeight(height))
             .clip(RoundedCornerShape(16.dp))
             .let { if (enabled) it.background(LocalAccents.current.gradient) else it.background(Brand.SurfaceElevated) }
             .clickable(enabled = enabled, onClick = onClick),
@@ -465,7 +468,7 @@ fun SecondaryButton(
     Box(
         modifier
             .fillMaxWidth()
-            .height(height)
+            .heightIn(min = Comfort.buttonHeight(height))
             .clip(shape)
             .background(Brand.SurfaceElevated)
             .border(BorderStroke(1.dp, if (enabled) color.copy(alpha = 0.55f) else Brand.Border), shape)
@@ -546,15 +549,15 @@ fun ScreenHeader(
         if (onBack != null) {
             Box(
                 Modifier
-                    .size(40.dp)
+                    .size(Comfort.MIN_TOUCH_DP.dp)
                     .clip(CircleShape)
                     .background(Brand.Surface)
-                    .clickable(onClick = onBack),
+                    .clickable(role = Role.Button, onClick = onBack),
                 contentAlignment = Alignment.Center,
             ) {
                 Icon(
                     Icons.AutoMirrored.Filled.ArrowBack,
-                    contentDescription = "Back",
+                    contentDescription = stringResource(R.string.common_back),
                     tint = Brand.TextPrimary,
                     modifier = Modifier.size(20.dp),
                 )

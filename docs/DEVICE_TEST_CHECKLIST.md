@@ -387,3 +387,72 @@ Note the phone model and Android version next to each item.
 - [ ] "Link tones" OFF: no tones, reconnect still happens.
 - [ ] Start screen shows "Reconnect to <buddy>" after a call; as the joiner it needs the
       buddy still paired, as the host it starts hosting again. Hidden for group rides.
+
+## Phase 8 (onboarding, languages, accessibility, diagnostics, ride summary)
+
+The Hindi text was written without a native review. Have a Hindi speaker read every screen
+before release; the English text is the source of truth.
+
+### First-run walkthrough
+- [ ] Fresh install: the walkthrough opens before the start screen. Progress bar and
+      "Step n of m" are correct; Skip setup leaves at once and is not shown again.
+- [ ] Each permission page shows its reason, the button opens the system dialog, and the
+      state flips to "Allowed" on return. Check on Android 10, 11, 12/12L, 13 and 14+
+      (Bluetooth page asks for location on 10 and 11; Notifications page only on 13+;
+      Location page only when "share position" is on).
+- [ ] Deny a permission twice: "Open app settings" appears and works.
+- [ ] Bluetooth off: the page offers "Turn Bluetooth on" and it works.
+- [ ] Battery page: the exemption button works, then reads "Done". On Xiaomi, OPPO/realme,
+      vivo, OnePlus, Samsung and Huawei the vendor steps are the right ones for that phone
+      and "Open settings" lands on the vendor screen (or does nothing harmful).
+- [ ] Settings > Run setup again reopens it; Back from it returns to the start screen.
+
+### Test call
+- [ ] Wired headset, Bluetooth headset in call mode, A2DP-only headset, phone only: the
+      "Audio route" lines name the right device and the advice sentence is right (headset
+      mic not in use, loudspeaker, nothing to listen through).
+- [ ] Meter follows your voice during the 4 s; the recording plays back through the headset.
+- [ ] Very quiet and very loud input give the "could not hear you" and "may distort" notes.
+- [ ] Another app holding the microphone gives the "could not be opened" message.
+- [ ] Button is disabled during a call and without the microphone permission.
+- [ ] Leaving the page during playback stops it.
+
+### Language
+- [ ] Settings > Language: Hindi, English, "Same as the phone". The app rebuilds in place
+      and lands on Settings again.
+- [ ] With the phone in Hindi and the app on English (and the reverse) nothing mixes:
+      notification title and actions, notification channel names in Android settings, the
+      SOS banner, error messages, transport status lines, ride summary.
+- [ ] Android 13+: Settings > System > Languages > App languages lists Hindi and English.
+- [ ] Devanagari renders without clipped or overlapping text on small and large phones.
+- [ ] Ride-code words stay English on both phones whatever the app language.
+
+### Accessibility
+- [ ] TalkBack: every icon button has a spoken name; switches and radio rows read as one item;
+      the mic level, link-quality graph and QR code have descriptions.
+- [ ] Android font size at maximum plus display size at maximum: nothing is cut off, buttons
+      grow, screens scroll.
+- [ ] High contrast in direct sunlight with a visor: readable, status colours still distinct.
+- [ ] Large buttons with winter gloves: Talk, Mute, Deafen, SOS and Start can be hit first time.
+- [ ] Every tappable control is at least 48 dp (developer options > Show layout bounds).
+
+### Share log
+- [ ] Settings > Share log opens the share sheet with a .txt file.
+- [ ] Open it: no coordinates, no ride code or code words, no rider or buddy names, no full
+      Bluetooth addresses, no passphrase. Header says what was removed.
+- [ ] Share to Gmail/Drive/Files works (the file provider grants read access).
+- [ ] Nothing is sent without choosing an app; airplane mode makes no difference.
+
+### Ride summary
+- [ ] A call of at least 10 s that connected shows the summary when it ends: duration,
+      connected %, drops, delay, loss, graph, radio switches. Shorter or never-connected
+      calls show nothing.
+- [ ] Walk out of range and back: the drop appears as a red dot and counts as a link drop.
+- [ ] Force a Bluetooth to Wi-Fi Direct switch: it is listed with the time.
+- [ ] Group ride: rider count is right; no per-rider data or positions shown.
+- [ ] Back and Done both clear the summary; reopening the app does not show it again.
+
+### Dependencies
+- [ ] Smoke-test a full call, group call and SOS after the Compose BOM, core-ktx,
+      activity-compose and DataStore bumps; release build with R8 and resource shrinking
+      still installs and runs (Hindi strings survive shrinking).

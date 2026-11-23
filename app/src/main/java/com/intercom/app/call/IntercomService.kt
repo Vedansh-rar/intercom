@@ -1,5 +1,8 @@
 package com.intercom.app.call
 
+import com.intercom.app.ui.labelRes
+import com.intercom.app.util.Localized
+import com.intercom.app.util.AppLanguage
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -49,6 +52,12 @@ import kotlinx.coroutines.launch
  * silent retry is what produces the one-way-audio bug.
  */
 class IntercomService : Service() {
+
+    /** Notification text in the language chosen in Settings, whatever language the phone is in. */
+    private fun str(@androidx.annotation.StringRes id: Int, vararg args: Any): String {
+        val language = (application as? RiderIntercomApp)?.prefs?.current?.language ?: AppLanguage.System
+        return Localized.context(this, language).getString(id, *args)
+    }
 
     companion object {
         private const val TAG = "IntercomService"
@@ -263,8 +272,8 @@ class IntercomService : Service() {
         )
         val n = NotificationCompat.Builder(this, RiderIntercomApp.CHANNEL_ALERT)
             .setSmallIcon(R.drawable.ic_notification)
-            .setContentTitle("SOS from ${sos.from}")
-            .setContentText("Open the app to see where they are")
+            .setContentTitle(str(R.string.svc_sos_from, sos.from))
+            .setContentText(str(R.string.svc_sos_open))
             .setCategory(NotificationCompat.CATEGORY_ALARM)
             .setPriority(NotificationCompat.PRIORITY_MAX)
             // No coordinates here: a notification can be read on the lock screen.
@@ -360,11 +369,11 @@ class IntercomService : Service() {
             ),
         )
 
-        val floorText = if (status.deafened) "Deafened: you hear nothing and send nothing"
-        else if (status.micMuted) "Muted: your mic is off"
+        val floorText = if (status.deafened) str(R.string.svc_deafened)
+        else if (status.micMuted) str(R.string.svc_muted)
         else when (status.floor) {
-            FloorState.Talking -> "You are talking"
-            FloorState.Muted -> "${status.peerName ?: "Buddy"} is talking"
+            FloorState.Talking -> str(R.string.svc_you_talking)
+            FloorState.Muted -> str(R.string.svc_peer_talking, status.peerName ?: str(R.string.call_buddy))
             FloorState.Idle -> status.statusText
         }
 
@@ -374,13 +383,17 @@ class IntercomService : Service() {
         val builder = NotificationCompat.Builder(this, RiderIntercomApp.CHANNEL_CALL)
             .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle(
-                if (status.isConnected) "Intercom with ${status.peerName ?: "buddy"}"
-                else if (status.isHost) "Hosting \u00b7 waiting for buddy"
-                else "Rider Intercom"
+                if (status.isConnected) str(R.string.svc_intercom_with, status.peerName ?: str(R.string.call_buddy_lower))
+                else if (status.isHost) str(R.string.svc_hosting_waiting)
+                else str(R.string.app_name_header)
             )
             .setContentText(floorText)
             .setSubText(
-                "${settings.talkMode.label} \u00b7 noise ${settings.noiseSuppression.label}"
+                str(
+                    R.string.svc_subtext,
+                    str(settings.talkMode.labelRes()),
+                    str(settings.noiseSuppression.labelRes()),
+                )
             )
             .setContentIntent(open)
             .setOngoing(true)
@@ -394,18 +407,18 @@ class IntercomService : Service() {
         // control that mode needs) and Deafen otherwise. Noise cycling stays on the call screen
         // and can be given to a headset button.
         builder.addAction(
-            action(if (status.micMuted) "Unmute" else "Mute", ACTION_TOGGLE_MUTE, 5)
+            action(if (status.micMuted) str(R.string.group_unmute) else str(R.string.group_mute), ACTION_TOGGLE_MUTE, 5)
         )
         if (settings.talkMode == TalkMode.PushToTalk) {
             builder.addAction(
-                action(if (status.pushToTalk) "Talking" else "Talk", ACTION_TOGGLE_PTT, 1)
+                action(if (status.pushToTalk) str(R.string.svc_act_talking) else str(R.string.svc_act_talk), ACTION_TOGGLE_PTT, 1)
             )
         } else {
-            builder.addAction(action(if (status.deafened) "Undeafen" else "Deafen", ACTION_TOGGLE_DEAFEN, 6))
+            builder.addAction(action(if (status.deafened) str(R.string.svc_act_undeafen) else str(R.string.svc_act_deafen), ACTION_TOGGLE_DEAFEN, 6))
         }
         // Stop is always last and always present: it is the one the rider reaches for
         // with a glove on, and it must never move around between states.
-        builder.addAction(action("Stop", ACTION_STOP, 2))
+        builder.addAction(action(str(R.string.hfp_stop), ACTION_STOP, 2))
         return builder.build()
     }
 
@@ -417,8 +430,8 @@ class IntercomService : Service() {
         )
         val n = NotificationCompat.Builder(this, RiderIntercomApp.CHANNEL_ALERT)
             .setSmallIcon(R.drawable.ic_notification)
-            .setContentTitle("Intercom stopped")
-            .setContentText("Open the app and tap Start to bring the call back")
+            .setContentTitle(str(R.string.svc_stopped))
+            .setContentText(str(R.string.svc_stopped_detail))
             .setContentIntent(open)
             .setAutoCancel(true)
             .build()

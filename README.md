@@ -73,6 +73,18 @@ Pick what suits your helmet in **Settings → Microphone**:
 - **LE Audio headset** — mic + hi-fi output at the same time. Android 13+; few helmet headsets support this yet.
 - **Headset mic** — convenient, but Android drops music to mono while the mic is open.
 
+### First run, languages and riding comfort
+The first launch walks you through the permissions, the battery settings that keep a call
+alive on your phone brand, and a test call that plays your voice back through the headset.
+Run it again from Settings. The app is available in English and Hindi (Settings > Language,
+or follow the phone); the ride-code words stay English so both phones always match. High
+contrast and large buttons for gloves are in Settings too.
+
+### Diagnostics and ride summary
+Settings > Share log saves the recent app log with positions, ride codes, names and
+Bluetooth addresses removed and opens the share sheet; nothing is uploaded. After a call a
+summary shows duration, link quality and radio switches. It is kept in memory only.
+
 ## What works
 
 - Direct voice calls over Bluetooth RFCOMM — no internet, no server

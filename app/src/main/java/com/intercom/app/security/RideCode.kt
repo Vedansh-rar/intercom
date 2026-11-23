@@ -47,8 +47,14 @@ sealed class RideCode {
     /** The outcome of reading what the rider typed. */
     sealed class Parsed {
         data class Valid(val code: RideCode) : Parsed()
-        data class Invalid(val reason: String) : Parsed()
+        /**
+         * [reason] is plain English for logs and tests; the screen shows its own words for
+         * [problem] (and [detail], the offending word) in the rider's language.
+         */
+        data class Invalid(val reason: String, val problem: Problem = Problem.Other, val detail: String? = null) : Parsed()
     }
+
+    enum class Problem { Empty, NumberLength, WordsOnly, TooFewWords, TooManyWords, UnknownWord, Other }
 
     companion object {
         const val MIN_WORDS = 4
@@ -77,7 +83,7 @@ sealed class RideCode {
          */
         fun parse(input: String): Parsed {
             val trimmed = input.trim()
-            if (trimmed.isEmpty()) return Parsed.Invalid("Enter the ride code")
+            if (trimmed.isEmpty()) return Parsed.Invalid("Enter the ride code", Problem.Empty)
 
             val tokens = trimmed.lowercase().split(SEPARATORS).filter { it.isNotEmpty() }
 
@@ -85,16 +91,16 @@ sealed class RideCode {
             if (tokens.all { t -> t.all { it in '0'..'9' } }) {
                 val joined = tokens.joinToString("")
                 return if (joined.length == DIGITS_LENGTH) Parsed.Valid(Digits(joined))
-                else Parsed.Invalid("A number code has $DIGITS_LENGTH digits")
+                else Parsed.Invalid("A number code has $DIGITS_LENGTH digits", Problem.NumberLength)
             }
 
             if (tokens.any { t -> t.any { it !in 'a'..'z' } }) {
-                return Parsed.Invalid("Use words only, or a $DIGITS_LENGTH-digit number")
+                return Parsed.Invalid("Use words only, or a $DIGITS_LENGTH-digit number", Problem.WordsOnly)
             }
-            if (tokens.size < MIN_WORDS) return Parsed.Invalid("Need at least $MIN_WORDS words")
-            if (tokens.size > MAX_WORDS) return Parsed.Invalid("At most $MAX_WORDS words")
+            if (tokens.size < MIN_WORDS) return Parsed.Invalid("Need at least $MIN_WORDS words", Problem.TooFewWords)
+            if (tokens.size > MAX_WORDS) return Parsed.Invalid("At most $MAX_WORDS words", Problem.TooManyWords)
             tokens.firstOrNull { !WordList.contains(it) }?.let {
-                return Parsed.Invalid("\"$it\" is not one of the ride words")
+                return Parsed.Invalid("\"$it\" is not one of the ride words", Problem.UnknownWord, it)
             }
             return Parsed.Valid(Words(tokens))
         }

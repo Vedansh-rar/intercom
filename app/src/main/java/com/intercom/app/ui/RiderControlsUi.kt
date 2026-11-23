@@ -49,6 +49,10 @@ import kotlinx.coroutines.delay
 import java.text.DateFormat
 import java.util.Date
 import kotlin.math.roundToInt
+import com.intercom.app.R
+import androidx.compose.ui.res.stringResource
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.widthIn
 
 /** Mute and Deafen: two large buttons that show the real state, not the last tap. */
 @Composable
@@ -63,20 +67,20 @@ fun MuteDeafenRow(
     ) {
         ControlButton(
             modifier = Modifier.weight(1f),
-            label = if (status.micMuted) "UNMUTE" else "MUTE",
-            sub = if (status.micMuted) "Mic is off" else "Mic is on",
+            label = if (status.micMuted) stringResource(R.string.rc_unmute) else stringResource(R.string.rc_mute),
+            sub = if (status.micMuted) stringResource(R.string.rc_mic_off) else stringResource(R.string.rc_mic_on),
             on = status.micMuted,
             onColor = Brand.Buddy,
-            description = if (status.micMuted) "Unmute microphone" else "Mute microphone",
+            description = if (status.micMuted) stringResource(R.string.rc_unmute_desc) else stringResource(R.string.rc_mute_desc),
             onClick = onToggleMute,
         )
         ControlButton(
             modifier = Modifier.weight(1f),
-            label = if (status.deafened) "UNDEAFEN" else "DEAFEN",
-            sub = if (status.deafened) "You hear nothing" else "Hear and send nothing",
+            label = if (status.deafened) stringResource(R.string.rc_undeafen) else stringResource(R.string.rc_deafen),
+            sub = if (status.deafened) stringResource(R.string.rc_hear_nothing) else stringResource(R.string.rc_hear_send_nothing),
             on = status.deafened,
             onColor = Brand.Danger,
-            description = if (status.deafened) "Stop being deafened" else "Deafen: stop hearing and sending",
+            description = if (status.deafened) stringResource(R.string.rc_undeafen_desc) else stringResource(R.string.rc_deafen_desc),
             onClick = onToggleDeafen,
         )
     }
@@ -94,7 +98,7 @@ private fun ControlButton(
 ) {
     Box(
         modifier
-            .height(76.dp)
+            .heightIn(min = Comfort.buttonHeight(76.dp))
             .clip(RoundedCornerShape(18.dp))
             .background(if (on) onColor else Brand.SurfaceElevated)
             .semantics { contentDescription = description }
@@ -114,10 +118,11 @@ private fun ControlButton(
 /** One line under the status pill when the buddy has muted or deafened themselves. */
 @Composable
 fun PeerStatusNote(status: CallStatus) {
-    val text = when {
-        status.group -> return
-        status.peerStatus == PeerInfo.Status.Deafened -> "${status.peerName ?: "Your buddy"} is deafened: they cannot hear you"
-        status.peerStatus == PeerInfo.Status.Muted -> "${status.peerName ?: "Your buddy"} is muted: you will not hear them"
+    if (status.group) return
+    val who = status.peerName ?: stringResource(R.string.peer_your_buddy)
+    val text = when (status.peerStatus) {
+        PeerInfo.Status.Deafened -> stringResource(R.string.peer_deafened, who)
+        PeerInfo.Status.Muted -> stringResource(R.string.peer_muted, who)
         else -> return
     }
     Text(
@@ -141,6 +146,7 @@ fun SosControl(
     var progress by remember { mutableFloatStateOf(0f) }
     val enabled = status.sosAvailable
     val out = status.sosOut
+    val sosDescription = stringResource(R.string.sos_description)
 
     LaunchedEffect(enabled) {
         while (true) {
@@ -163,7 +169,7 @@ fun SosControl(
         Box(
             Modifier
                 .fillMaxWidth()
-                .height(88.dp)
+                .heightIn(min = Comfort.buttonHeight(88.dp))
                 .clip(RoundedCornerShape(20.dp))
                 .background(
                     when {
@@ -172,9 +178,7 @@ fun SosControl(
                         else -> Color(0xFF3A1414)
                     }
                 )
-                .semantics {
-                    contentDescription = "SOS. Tap twice, or hold for three seconds, to send an alert to your buddy"
-                }
+                .semantics { contentDescription = sosDescription }
                 .pointerInput(enabled) {
                     detectTapGestures(
                         onPress = {
@@ -202,19 +206,19 @@ fun SosControl(
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(
                     when {
-                        !enabled -> "SOS"
-                        progress > 0f -> "KEEP HOLDING  ${(progress * 100).roundToInt()}%"
-                        armed -> "TAP AGAIN TO SEND"
-                        else -> "SOS"
+                        !enabled -> stringResource(R.string.sos_label)
+                        progress > 0f -> stringResource(R.string.sos_keep_holding, (progress * 100).roundToInt())
+                        armed -> stringResource(R.string.sos_tap_again)
+                        else -> stringResource(R.string.sos_label)
                     },
                     fontSize = 24.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.5.sp,
                     color = if (enabled) Color.White else Brand.Idle,
                 )
                 Text(
                     when {
-                        !enabled -> "Available once you are linked to a buddy or group"
-                        armed -> "Or hold for 3 seconds"
-                        else -> "Tap twice, or hold 3 seconds"
+                        !enabled -> stringResource(R.string.sos_unavailable)
+                        armed -> stringResource(R.string.sos_or_hold)
+                        else -> stringResource(R.string.sos_hint)
                     },
                     fontSize = 12.sp,
                     color = if (enabled) Color(0xFFFFD6D6) else Brand.Idle,
@@ -227,50 +231,58 @@ fun SosControl(
 @Composable
 private fun SosOutStatus(out: com.intercom.app.call.SosOutgoing, onDismiss: () -> Unit) {
     val (text, color) = when {
-        out.failed -> "SOS was not sent: no link for two minutes." to Brand.Danger
-        !out.sent -> "SOS is waiting for the link, and will go the moment it is back." to Brand.Buddy
-        out.withPosition -> "SOS sent with your last known position. It is repeated twice." to Brand.Talking
-        else -> "SOS sent without a position (location sharing is off). It is repeated twice." to Brand.Talking
+        out.failed -> stringResource(R.string.sos_not_sent) to Brand.Danger
+        !out.sent -> stringResource(R.string.sos_waiting) to Brand.Buddy
+        out.withPosition -> stringResource(R.string.sos_sent_pos) to Brand.Talking
+        else -> stringResource(R.string.sos_sent_nopos) to Brand.Talking
     }
     Row(
         Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(Brand.SurfaceElevated).padding(12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(text, fontSize = 13.sp, color = color, modifier = Modifier.weight(1f))
-        Text(
-            if (out.sent || out.failed) "OK" else "CANCEL",
-            fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Brand.TextPrimary,
-            modifier = Modifier.padding(start = 12.dp).clickable(role = Role.Button, onClick = onDismiss).padding(8.dp),
-        )
+        Box(
+            Modifier.padding(start = 12.dp).heightIn(min = Comfort.MIN_TOUCH_DP.dp).widthIn(min = Comfort.MIN_TOUCH_DP.dp)
+                .clickable(role = Role.Button, onClick = onDismiss).padding(horizontal = 8.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                if (out.sent || out.failed) stringResource(R.string.common_ok) else stringResource(R.string.common_cancel_caps),
+                fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Brand.TextPrimary,
+            )
+        }
     }
 }
 
 /** The full-screen banner for a received SOS. It stays until dismissed. */
 @Composable
 fun SosBanner(sos: SosIncoming, unit: DistanceUnit, onDismiss: () -> Unit) {
+    val bannerDescription = stringResource(R.string.sos_banner_description, sos.from)
     Box(
         Modifier
             .fillMaxSize()
             .background(Color(0xFFB91C1C))
             .safeDrawingPadding()
-            .semantics { contentDescription = "S O S alert from ${sos.from}" },
+            .semantics { contentDescription = bannerDescription },
     ) {
         Column(
             Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center,
         ) {
-            Text("SOS", fontSize = 72.sp, fontWeight = FontWeight.Black, color = Color.White, letterSpacing = 6.sp)
+            Text(stringResource(R.string.sos_label), fontSize = 72.sp, fontWeight = FontWeight.Black, color = Color.White, letterSpacing = 6.sp)
             Spacer(Modifier.height(8.dp))
             Text(
-                "${sos.from} needs help",
+                stringResource(R.string.sos_needs_help, sos.from),
                 fontSize = 26.sp, fontWeight = FontWeight.Bold, color = Color.White, textAlign = TextAlign.Center,
             )
             Spacer(Modifier.height(24.dp))
             if (sos.latDeg != null && sos.lonDeg != null) {
                 if (sos.meters != null && sos.bearingDeg != null) {
+                    val distText = DistanceFormat.format(sos.meters, unit).text
+                    val dirText = Geo.cardinal(sos.bearingDeg)
                     Text(
-                        "${DistanceFormat.format(sos.meters, unit).text} ${Geo.cardinal(sos.bearingDeg)} of you",
+                        stringResource(R.string.sos_distance_dir, distText, dirText),
                         fontSize = 28.sp, fontWeight = FontWeight.Bold, color = Color.White, textAlign = TextAlign.Center,
                     )
                     Spacer(Modifier.height(8.dp))
@@ -284,9 +296,9 @@ fun SosBanner(sos: SosIncoming, unit: DistanceUnit, onDismiss: () -> Unit) {
                     Spacer(Modifier.height(6.dp))
                     Text(
                         when {
-                            age >= 630 -> "Position is over 10 minutes old"
-                            age < 60 -> "Position is about $age seconds old"
-                            else -> "Position is about ${(age / 60.0).roundToInt()} min old"
+                            age >= 630 -> stringResource(R.string.sos_pos_old10)
+                            age < 60 -> stringResource(R.string.sos_pos_old_s, age)
+                            else -> stringResource(R.string.sos_pos_old_m, (age / 60.0).roundToInt())
                         },
                         fontSize = 15.sp, color = Color(0xFFFFE4E4), textAlign = TextAlign.Center,
                     )
@@ -294,32 +306,33 @@ fun SosBanner(sos: SosIncoming, unit: DistanceUnit, onDismiss: () -> Unit) {
                 if (sos.meters == null) {
                     Spacer(Modifier.height(6.dp))
                     Text(
-                        "Switch on \"Share my location\" to see how far away it is.",
+                        stringResource(R.string.sos_enable_sharing),
                         fontSize = 14.sp, color = Color(0xFFFFE4E4), textAlign = TextAlign.Center,
                     )
                 }
             } else {
                 Text(
-                    "No position was sent. Call or message them.",
+                    stringResource(R.string.sos_no_position),
                     fontSize = 20.sp, color = Color.White, textAlign = TextAlign.Center,
                 )
             }
             Spacer(Modifier.height(10.dp))
+            val sentAt = DateFormat.getTimeInstance(DateFormat.MEDIUM).format(Date(sos.atMs))
             Text(
-                "Sent at ${DateFormat.getTimeInstance(DateFormat.MEDIUM).format(Date(sos.atMs))} (their clock)",
+                stringResource(R.string.sos_sent_at, sentAt),
                 fontSize = 13.sp, color = Color(0xFFFFE4E4),
             )
             Spacer(Modifier.height(36.dp))
             Box(
                 Modifier
                     .fillMaxWidth()
-                    .height(76.dp)
+                    .heightIn(min = Comfort.buttonHeight(76.dp))
                     .clip(RoundedCornerShape(20.dp))
                     .background(Color.White)
                     .clickable(role = Role.Button, onClick = onDismiss),
                 contentAlignment = Alignment.Center,
             ) {
-                Text("DISMISS", fontSize = 22.sp, fontWeight = FontWeight.Bold, color = Color(0xFF7F1D1D), letterSpacing = 2.sp)
+                Text(stringResource(R.string.sos_dismiss), fontSize = 22.sp, fontWeight = FontWeight.Bold, color = Color(0xFF7F1D1D), letterSpacing = 2.sp)
             }
         }
     }

@@ -25,9 +25,12 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.intercom.app.call.CallStatus
 import com.intercom.app.location.DistanceText
+import com.intercom.app.location.DistanceWords
 import com.intercom.app.location.DistanceUnit
 import com.intercom.app.location.LocationState
 import com.intercom.app.location.RiderDistance
+import com.intercom.app.R
+import androidx.compose.ui.res.stringResource
 
 /**
  * An arrow that points where the other rider is, relative to the way this rider is heading:
@@ -69,14 +72,16 @@ fun DistanceReadout(
     val stale = distance.stale
     val tint = if (stale) Brand.TextDim else Brand.TextPrimary
     val accent = if (stale) Brand.Idle else LocalAccents.current.base
-    val detail = DistanceText.detail(distance)
+    val words = rememberDistanceWords()
+    val detail = DistanceText.detail(distance, words)
+    val spokenSummary = DistanceText.spoken(name, distance, unit, words)
     val rel = distance.relativeDeg
 
     Row(
         // In a peer row the row itself already speaks the distance; do not say it twice.
         if (compact) Modifier.clearAndSetSemantics { }
         else Modifier.semantics(mergeDescendants = true) {
-            contentDescription = DistanceText.spoken(name, distance, unit)
+            contentDescription = spokenSummary
         },
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(if (compact) 8.dp else 14.dp),
@@ -102,14 +107,14 @@ fun DistanceReadout(
 @Composable
 fun BuddyDistanceCard(status: CallStatus, unit: DistanceUnit) {
     val d = status.buddy
-    val note = DistanceText.gpsNote(status.location, d != null, d?.ownStale == true)
+    val note = DistanceText.gpsNote(status.location, d != null, d?.ownStale == true, rememberDistanceWords())
     BrandCard(Modifier.fillMaxWidth()) {
         Text(
-            "DISTANCE",
+            stringResource(R.string.loc_distance),
             fontSize = 11.sp, letterSpacing = 1.6.sp,
             fontWeight = FontWeight.SemiBold, color = Brand.TextDim,
         )
-        if (d != null) DistanceReadout(status.peerName ?: "Buddy", d, unit)
+        if (d != null) DistanceReadout(status.peerName ?: stringResource(R.string.call_buddy), d, unit)
         if (note != null) {
             Text(note, fontSize = 13.sp, color = Brand.TextDim, lineHeight = 18.sp)
         }
@@ -121,12 +126,12 @@ fun BuddyDistanceCard(status: CallStatus, unit: DistanceUnit) {
 fun FallingBehindBanner(who: String?) {
     BrandCard(Modifier.fillMaxWidth()) {
         Text(
-            "FALLING BEHIND",
+            stringResource(R.string.loc_falling_behind),
             fontSize = 11.sp, letterSpacing = 1.6.sp,
             fontWeight = FontWeight.Bold, color = Brand.Danger,
         )
         Text(
-            if (who != null) "$who is falling behind" else "A rider is falling behind",
+            if (who != null) stringResource(R.string.loc_who_behind, who) else stringResource(R.string.loc_rider_behind),
             fontSize = 16.sp, color = Brand.TextPrimary,
             modifier = Modifier.semantics { liveRegion = LiveRegionMode.Assertive },
         )
@@ -134,9 +139,9 @@ fun FallingBehindBanner(who: String?) {
 }
 
 /** The GPS line for a group ride, where there is no single distance card. Null when none is needed. */
-fun groupGpsNote(status: CallStatus): String? {
+fun groupGpsNote(status: CallStatus, words: DistanceWords): String? {
     val distances = status.peers.mapNotNull { it.distance }
-    return DistanceText.gpsNote(status.location, distances.isNotEmpty(), distances.any { it.ownStale })
+    return DistanceText.gpsNote(status.location, distances.isNotEmpty(), distances.any { it.ownStale }, words)
 }
 
 /** Who is furthest behind among riders whose position is current, for the alert banner. */

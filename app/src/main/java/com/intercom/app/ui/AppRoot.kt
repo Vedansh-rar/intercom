@@ -23,6 +23,14 @@ import com.intercom.app.call.IntercomService
 import com.intercom.app.transport.LinkRole
 import com.intercom.app.util.Permissions
 import com.intercom.app.util.Prefs
+import androidx.compose.ui.res.stringResource
+import androidx.activity.compose.BackHandler
+import androidx.compose.runtime.LaunchedEffect
+import com.intercom.app.summary.RideSummaryStore
+import com.intercom.app.selftest.SelfTest
+import com.intercom.app.util.AppLanguage
+import com.intercom.app.call.CallPhase
+import com.intercom.app.R
 
 @Composable
 fun AppRoot(
@@ -44,13 +52,33 @@ fun AppRoot(
     onOpenOemSettings: (Intent) -> Unit,
     onRequestLocation: () -> Unit,
     locationDenied: Boolean,
+    permissionVersion: Int = 0,
+    selfTest: SelfTest,
+    onAskPermissions: (List<String>) -> Unit = {},
+    onFinishOnboarding: () -> Unit = {},
+    onLanguage: (AppLanguage) -> Unit = {},
+    onShareLog: () -> Unit = {},
+    shareLogBusy: Boolean = false,
 ) {
     val settings by prefs.settings.collectAsState()
     val ctx = LocalContext.current
     // Checked here rather than mid-ride, so the rider learns before they set off.
-    val wifiDirectProblem = remember(settings.transport) { wifiDirectBlocker(ctx) }
+    val wifiDirectProblemRes = remember(settings.transport) { wifiDirectBlocker(ctx) }
+    val wifiDirectProblem = wifiDirectProblemRes?.let { stringResource(it) }
     val service by IntercomService.instance.collectAsState()
     val status: CallStatus = service?.controller?.status?.collectAsState()?.value ?: CallStatus()
+
+    // A call that just ended leaves a summary behind; show it from the screens a rider ends a call on.
+    val summary by RideSummaryStore.latest.collectAsState()
+    LaunchedEffect(summary, screen) {
+        if (summary != null && (screen == Screen.Call || screen == Screen.Start)) onScreen(Screen.Summary)
+    }
+    // The system Back button follows the on-screen one on the screens that have no other way out.
+    BackHandler(enabled = screen == Screen.Summary) {
+        RideSummaryStore.clear()
+        onScreen(Screen.Start)
+    }
+    BackHandler(enabled = screen == Screen.Onboarding) { onFinishOnboarding() }
 
     Surface(
         modifier = Modifier.fillMaxSize(),
@@ -130,6 +158,10 @@ fun AppRoot(
                     },
                     locationDenied = locationDenied,
                     onOpenAppSettings = onOpenAppSettings,
+                    onLanguage = onLanguage,
+                    onShareLog = onShareLog,
+                    shareLogBusy = shareLogBusy,
+                    onRunSetup = { onScreen(Screen.Onboarding) },
                 )
 
                 Screen.Oem -> OemScreen(
@@ -142,6 +174,32 @@ fun AppRoot(
                 Screen.Hfp -> HfpScreen(
                     onBack = { onScreen(Screen.Settings) },
                 )
+
+                Screen.Onboarding -> OnboardingScreen(
+                    shareLocation = settings.shareLocation,
+                    permissionVersion = permissionVersion,
+                    bluetoothOn = bluetoothOn,
+                    callActive = status.phase !in listOf(CallPhase.Idle, CallPhase.Ended, CallPhase.Error),
+                    selfTest = selfTest,
+                    onRequestPermissions = onAskPermissions,
+                    onEnableBluetooth = onEnableBluetooth,
+                    onOpenAppSettings = onOpenAppSettings,
+                    onRequestBatteryExemption = onRequestBatteryExemption,
+                    onOpenOemSettings = onOpenOemSettings,
+                    onFinish = onFinishOnboarding,
+                )
+
+                Screen.Summary -> {
+                    val done = summary
+                    if (done == null) {
+                        LaunchedEffect(Unit) { onScreen(Screen.Start) }
+                    } else {
+                        SummaryScreen(done, onDone = {
+                            RideSummaryStore.clear()
+                            onScreen(Screen.Start)
+                        })
+                    }
+                }
             }
         }
 
@@ -179,14 +237,15 @@ private fun ShowOverLockScreen(on: Boolean) {
  * Why Wi-Fi Direct cannot be used on this phone right now, or null when it can.
  * Mirrors the preconditions `WifiDirectLink` checks, so settings and the live link agree.
  */
-private fun wifiDirectBlocker(context: android.content.Context): String? {
+@androidx.annotation.StringRes
+private fun wifiDirectBlocker(context: android.content.Context): Int? {
     val p2p = context.getSystemService(android.content.Context.WIFI_P2P_SERVICE)
-    if (p2p == null) return "this phone has no Wi-Fi Direct"
+    if (p2p == null) return R.string.wifi_blocker_none
     if (!com.intercom.app.util.Permissions.hasNearbyWifi(context)) {
-        return "the Nearby Wi-Fi permission is not granted"
+        return R.string.wifi_blocker_permission
     }
     val wm = context.applicationContext
         .getSystemService(android.content.Context.WIFI_SERVICE) as? android.net.wifi.WifiManager
-    if (wm != null && !wm.isWifiEnabled) return "Wi-Fi is switched off"
+    if (wm != null && !wm.isWifiEnabled) return R.string.wifi_blocker_off
     return null
 }

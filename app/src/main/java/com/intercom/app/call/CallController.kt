@@ -1,5 +1,11 @@
 package com.intercom.app.call
 
+import com.intercom.app.util.Localized
+import com.intercom.app.summary.RideRecorder
+import com.intercom.app.summary.RideSummaryStore
+import com.intercom.app.util.StatusTranslator
+import com.intercom.app.util.AppLanguage
+import androidx.annotation.StringRes
 import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothDevice
 import android.content.Context
@@ -85,6 +91,7 @@ import kotlinx.coroutines.Dispatchers
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.util.concurrent.atomic.AtomicInteger
+import com.intercom.app.R
 
 /**
  * The session: it owns the link, the audio pipeline and the floor, and it is the only
@@ -117,9 +124,22 @@ class CallController(
         /** A received SOS sounds, then repeats every 9 seconds, 6 times in all, until dismissed. */
         private const val SOS_SIREN_EVERY_MS = 9_000L
         private const val SOS_SIREN_MAX_PLAYS = 6
+
+        /** Shorter calls (a test, a misfire) do not get a summary screen. */
+        private const val MIN_SUMMARY_MS = 10_000L
     }
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
+    /** Rider-facing text in the language chosen in Settings (read each time: it can change mid-session). */
+    private fun localizedContext(): Context = Localized.context(context, prefs.current.language)
+
+    private fun str(@StringRes id: Int, vararg args: Any): String = localizedContext().getString(id, *args)
+
+    /** Transport status lines are English at the source; show them in the rider's language. */
+    private fun tr(status: String): String = StatusTranslator.translate(localizedContext(), status)
+
+    private val englishContext: Context by lazy { Localized.context(context, AppLanguage.English) }
 
     private val _status = MutableStateFlow(CallStatus())
     val status: StateFlow<CallStatus> = _status.asStateFlow()
@@ -133,6 +153,9 @@ class CallController(
      */
     private val _micLevel = MutableStateFlow(0f)
     val micLevel: StateFlow<Float> = _micLevel.asStateFlow()
+
+    /** Feeds the end-of-ride summary. Memory only: it is never written to disk or sent anywhere. */
+    private val recorder = RideRecorder()
 
     private val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
 
@@ -226,15 +249,15 @@ class CallController(
         ) return
 
         if (!Permissions.hasMicrophone(context)) {
-            fail("Microphone permission is not granted")
+            fail(R.string.cc_err_mic_perm)
             return
         }
         if (!Permissions.hasBluetooth(context)) {
-            fail("Bluetooth permission is not granted")
+            fail(R.string.cc_err_bt_perm)
             return
         }
         if (!adapter.isEnabled) {
-            fail("Bluetooth is off")
+            fail(R.string.start_bt_off)
             return
         }
 
@@ -243,11 +266,11 @@ class CallController(
         rideCode = RideCode.parseOrNull(settings.rideCode)
         allowLegacy = settings.allowLegacyBuddy
         if (rideCode == null && !allowLegacy) {
-            fail("Set a ride code first")
+            fail(R.string.cc_err_no_code)
             return
         }
         if (throttle.isLocked) {
-            fail("Too many wrong ride codes. Try again in ${secondsLeft()} s")
+            fail(R.string.cc_err_throttled, secondsLeft())
             return
         }
         focus.takeFocus = settings.takeAudioFocus
@@ -258,11 +281,13 @@ class CallController(
         prefs.update { it.copy(lastRole = if (role == LinkRole.Host) LastRole.Host else LastRole.Client) }
 
         startedAtMs = System.currentTimeMillis()
+        RideSummaryStore.clear()
+        recorder.start(startedAtMs, group = false)
         update {
             it.copy(
                 phase = CallPhase.Starting,
                 isHost = role == LinkRole.Host,
-                statusText = if (role == LinkRole.Host) "Waiting for buddy" else "Connecting",
+                statusText = if (role == LinkRole.Host) str(R.string.cc_waiting_buddy) else str(R.string.cc_connecting),
                 error = null,
             )
         }
@@ -301,7 +326,7 @@ class CallController(
         player.onStatus = ::onAudioStatus
         jitter.decoder = codec
         if (!player.start()) {
-            fail("Could not open the audio output")
+            fail(R.string.cc_err_audio_out)
             return
         }
 
@@ -316,7 +341,7 @@ class CallController(
         )
         applyNoiseSettings(m, settings)
         if (!m.start()) {
-            fail("Could not open the microphone")
+            fail(R.string.cc_err_mic_open)
             return
         }
         mic = m
@@ -336,9 +361,9 @@ class CallController(
             _status.value.phase != CallPhase.Error
         ) return
 
-        if (!Permissions.hasMicrophone(context)) { fail("Microphone permission is not granted"); return }
-        if (!Permissions.hasGroup(context)) { fail("Nearby permissions are not granted"); return }
-        if (!GroupLink.isAvailable(context)) { fail("Group mode needs Google Play services"); return }
+        if (!Permissions.hasMicrophone(context)) { fail(R.string.cc_err_mic_perm); return }
+        if (!Permissions.hasGroup(context)) { fail(R.string.cc_err_nearby_perm); return }
+        if (!GroupLink.isAvailable(context)) { fail(R.string.cc_err_play_services); return }
 
         val settings = prefs.current
         terminal = false
@@ -346,24 +371,26 @@ class CallController(
         if (code == null) {
             // A group has no "allow unencrypted" escape hatch: there is no single buddy to
             // trade off, and an open group would let anyone in range listen.
-            fail("Set a ride code first. Group rides are always encrypted.")
+            fail(R.string.cc_err_group_no_code)
             return
         }
         rideCode = code
-        if (throttle.isLocked) { fail("Too many wrong ride codes. Try again in ${secondsLeft()} s"); return }
+        if (throttle.isLocked) { fail(R.string.cc_err_throttled, secondsLeft()); return }
 
         focus.takeFocus = settings.takeAudioFocus
         focus.duckWhenITalk = settings.duckWhenITalk
         applyVoiceLevel(settings.voiceLevelDb, settings.takeAudioFocus)
         resetRiderControls()
         startedAtMs = System.currentTimeMillis()
+        RideSummaryStore.clear()
+        recorder.start(startedAtMs, group = true)
         update {
             it.copy(
                 phase = CallPhase.Starting,
                 isHost = priority > 0,
                 group = true,
                 peers = emptyList(),
-                statusText = "Looking for riders",
+                statusText = str(R.string.cc_looking_riders),
                 error = null,
             )
         }
@@ -393,7 +420,7 @@ class CallController(
         player.onStatus = ::onAudioStatus
         g.start()
         if (!player.start()) {
-            fail("Could not open the audio output")
+            fail(R.string.cc_err_audio_out)
             return
         }
         val m = MicCapture(
@@ -407,7 +434,7 @@ class CallController(
         )
         applyNoiseSettings(m, settings)
         if (!m.start()) {
-            fail("Could not open the microphone")
+            fail(R.string.cc_err_mic_open)
             return
         }
         mic = m
@@ -442,7 +469,7 @@ class CallController(
 
     private fun publishGroup() {
         val g = group ?: return
-        val text = if (g.sawWrongCode) "Wrong ride code. Check it matches the group's." else g.linkStatus.value
+        val text = if (g.sawWrongCode) str(R.string.cc_wrong_code_group) else tr(g.linkStatus.value)
         val speaker = g.speakerName()
         update {
             it.copy(
@@ -476,6 +503,14 @@ class CallController(
                     if (ready > readyBefore) rideLocation?.announce()
                     readyBefore = ready
                     publishLocation()
+                    recorder.onTick(
+                        nowMs = System.currentTimeMillis(),
+                        connected = ready > 0,
+                        rttMs = -1,
+                        lossPercent = 0.0,
+                        transport = null,
+                        riders = ready + 1,
+                    )
                     update {
                         it.copy(
                             focusHeld = focus.isHeld,
@@ -522,8 +557,8 @@ class CallController(
 
     /** Mic or speaker stream being recovered after a route change; shown to the rider. */
     private fun onAudioStatus(message: String) {
-        if (message.isNotEmpty()) update { it.copy(statusText = message) }
-        else link?.status?.value?.let { s -> update { it.copy(statusText = s) } }
+        if (message.isNotEmpty()) update { it.copy(statusText = tr(message)) }
+        else link?.status?.value?.let { s -> update { it.copy(statusText = tr(s)) } }
     }
 
     private fun observeLink(l: PeerLink) {
@@ -574,7 +609,7 @@ class CallController(
                 }
             }
         }
-        scope.launch { l.status.collect { s -> if (!terminal) update { it.copy(statusText = s) } } }
+        scope.launch { l.status.collect { s -> if (!terminal) update { it.copy(statusText = tr(s)) } } }
         scope.launch { l.rttMillis.collect { r -> update { it.copy(rttMs = r) } } }
         scope.launch {
             l.peerHello.collect { h ->
@@ -636,6 +671,13 @@ class CallController(
                     refreshSosState()
                     adaptBitrate(l)
                     publishLocation()
+                    recorder.onTick(
+                        nowMs = System.currentTimeMillis(),
+                        connected = l.state.value == LinkState.Connected,
+                        rttMs = l.rttMillis.value,
+                        lossPercent = jitter.lossPercent(),
+                        transport = selector?.activeTransport?.value?.label,
+                    )
                     update {
                         it.copy(
                             floor = arb.state.value,
@@ -785,7 +827,7 @@ class CallController(
                 arb.onRemoteFloorDenied(_status.value.peerName)
             }
             Protocol.TYPE_END -> {
-                update { it.copy(statusText = "Buddy ended the call") }
+                update { it.copy(statusText = str(R.string.cc_buddy_ended)) }
                 stop()
             }
             Protocol.TYPE_POSITION -> onPosition(m)
@@ -902,17 +944,14 @@ class CallController(
                     security = ChannelSecurity.Unencrypted
                     update { it.copy(security = ChannelSecurity.Unencrypted) }
                 }
-                SecurityPolicy.Decision.RefuseBuddy -> failSecurity(
-                    "Your buddy's app can't encrypt calls. Update it, or allow an " +
-                        "unencrypted buddy in Settings."
-                )
+                SecurityPolicy.Decision.RefuseBuddy -> failSecurity(R.string.cc_err_buddy_no_crypto)
             }
         }
     }
 
     private fun beginAuth(l: PeerLink, code: RideCode) {
         if (throttle.isLocked) {
-            failSecurity("Too many wrong ride codes. Try again in ${secondsLeft()} s")
+            failSecurity(R.string.cc_err_throttled, secondsLeft())
             return
         }
         val session = AuthSession(code, sessionId, seenNonces)
@@ -920,7 +959,7 @@ class CallController(
         authSession = session
         authInbox = inbox
         security = ChannelSecurity.Authenticating
-        update { it.copy(security = ChannelSecurity.Authenticating, statusText = "Securing the call") }
+        update { it.copy(security = ChannelSecurity.Authenticating, statusText = str(R.string.cc_securing)) }
 
         // Re-send our challenge until the buddy answers: it may not have been listening for
         // the first one. Gives up after a while rather than hanging forever.
@@ -933,7 +972,7 @@ class CallController(
                 if (session.state == AuthSession.State.AwaitingPeer &&
                     System.currentTimeMillis() - startedAt > AUTH_TIMEOUT_MS
                 ) {
-                    failSecurity("The security check with your buddy timed out")
+                    failSecurity(R.string.cc_err_auth_timeout)
                     return@launch
                 }
             }
@@ -971,7 +1010,7 @@ class CallController(
                 cipher = session.newCipher()
                 security = ChannelSecurity.Encrypted
                 throttle.recordSuccess()
-                val text = link?.status?.value ?: "Connected"
+                val text = link?.status?.value?.let(::tr) ?: str(R.string.cc_connected)
                 update { it.copy(security = ChannelSecurity.Encrypted, statusText = text) }
                 Log.i(TAG, "channel authenticated and encrypted")
                 // The buddy should not wait for the next timed report to see a distance.
@@ -980,22 +1019,22 @@ class CallController(
 
             AuthSession.Outcome.WrongCode -> {
                 throttle.recordFailure()
-                failSecurity("Wrong ride code. Check it matches your buddy's.")
+                failSecurity(R.string.cc_wrong_code_buddy)
             }
 
-            is AuthSession.Outcome.Rejected -> failSecurity("Security check failed (${outcome.reason})")
+            is AuthSession.Outcome.Rejected -> failSecurity(R.string.cc_err_auth_failed, outcome.reason)
             AuthSession.Outcome.None -> Unit
         }
     }
 
     /** Ends the call for a security reason: say why, close the link, keep the reason on screen. */
-    private fun failSecurity(message: String) {
+    private fun failSecurity(@StringRes id: Int, vararg args: Any) {
         terminal = true
         synchronized(securityLock) { resetSecurityLocked() }
         ticker?.cancel()
         ticker = null
         update { it.copy(security = ChannelSecurity.Pending) }
-        fail(message)
+        fail(id, *args)
     }
 
     /** The link is gone: forget keys, they are good for one connection only. */
@@ -1034,7 +1073,7 @@ class CallController(
                     l.send(Codec.encode(type, seq, sealed.flags, sealed.payload))
                 } catch (e: IllegalStateException) {
                     // 2^32 frames sent on one key: never reuse a nonce, rekey by reconnecting.
-                    failSecurity("The secure session ran out of keys. Please reconnect.")
+                    failSecurity(R.string.cc_err_out_of_keys)
                     false
                 }
             }
@@ -1125,7 +1164,7 @@ class CallController(
      */
     private fun onInterruption(permanent: Boolean) {
         suspendedForInterruption = true
-        update { it.copy(statusText = if (permanent) "Audio taken by another app" else "Paused for a call") }
+        update { it.copy(statusText = if (permanent) str(R.string.cc_audio_taken) else str(R.string.cc_paused_call)) }
     }
 
     private fun onInterruptionOver() {
@@ -1135,7 +1174,7 @@ class CallController(
         preroll.clear()
         group?.resetCapture()
         player.restart()
-        update { it.copy(statusText = "Resumed") }
+        update { it.copy(statusText = str(R.string.cc_resumed)) }
     }
 
     // ----------------------------------------------------------------- control
@@ -1361,7 +1400,7 @@ class CallController(
         val lat = alert.latE7?.let { it / 1e7 }
         val lon = alert.lonE7?.let { it / 1e7 }
         val valid = lat != null && lon != null && Geo.isValid(lat, lon)
-        val from = name?.takeIf { it.isNotBlank() } ?: _status.value.peerName ?: "A rider"
+        val from = name?.takeIf { it.isNotBlank() } ?: _status.value.peerName ?: str(R.string.call_a_rider)
         Log.i(TAG, "SOS received, position=$valid")
         sosSirenReplays = 0
         sosSirenNextAt = 0L
@@ -1478,6 +1517,10 @@ class CallController(
     fun stop() {
         ticker?.cancel()
         ticker = null
+        // A call that never connected has nothing to summarise.
+        recorder.finish(System.currentTimeMillis())
+            ?.takeIf { it.durationMs >= MIN_SUMMARY_MS && it.samples.any { s -> s.connected } }
+            ?.let { RideSummaryStore.publish(it) }
         // Stops the GPS: location is read only while a call is up.
         rideLocation?.stop()
         rideLocation = null
@@ -1521,7 +1564,7 @@ class CallController(
                 phase = CallPhase.Ended,
                 link = LinkState.Closed,
                 floor = FloorState.Idle,
-                statusText = "Call ended",
+                statusText = str(R.string.cc_call_ended),
                 rttMs = -1,
                 security = ChannelSecurity.Pending,
                 group = false,
@@ -1539,8 +1582,13 @@ class CallController(
         scope.cancel()
     }
 
-    private fun fail(message: String) {
-        Log.e(TAG, message)
+    /**
+     * The rider sees the message in their language; the log keeps it in English so a shared
+     * log is readable by whoever is helping.
+     */
+    private fun fail(@StringRes id: Int, vararg args: Any) {
+        val message = str(id, *args)
+        Log.e(TAG, englishContext.getString(id, *args))
         update {
             it.copy(
                 phase = CallPhase.Error, error = message, statusText = message,

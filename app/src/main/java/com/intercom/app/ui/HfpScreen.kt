@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -43,6 +44,8 @@ import com.intercom.app.hfp.AgState
 import com.intercom.app.hfp.BridgeState
 import com.intercom.app.hfp.HfpAgServer
 import com.intercom.app.hfp.HfpBridge
+import com.intercom.app.R
+import androidx.compose.ui.res.stringResource
 
 /**
  * Debug screen for testing HFP Audio Gateway connectivity with intercom devices.
@@ -89,12 +92,12 @@ fun HfpScreen(
             IconButton(onClick = onBack) {
                 Icon(
                     Icons.AutoMirrored.Filled.ArrowBack,
-                    contentDescription = "Back",
+                    contentDescription = stringResource(R.string.common_back),
                     tint = MaterialTheme.colorScheme.onBackground,
                 )
             }
             Text(
-                "HFP Intercom Bridge",
+                stringResource(R.string.hfp_title),
                 style = MaterialTheme.typography.titleLarge,
                 color = MaterialTheme.colorScheme.onBackground,
             )
@@ -108,11 +111,11 @@ fun HfpScreen(
         ) {
             // ---- Section 1: System HFP Bridge ----
             item {
-                SectionCard("System HFP Bridge") {
-                    StatusRow("State", bridgeState.name)
-                    StatusRow("SCO Audio", if (scoConnected) "Connected" else "Disconnected")
+                SectionCard(stringResource(R.string.hfp_system_bridge)) {
+                    StatusRow(stringResource(R.string.call_state), bridgeState.name)
+                    StatusRow(stringResource(R.string.hfp_sco_audio), if (scoConnected) stringResource(R.string.ls_connected) else stringResource(R.string.hfp_disconnected))
                     bridgeDevice?.let { dev ->
-                        StatusRow("Device", "${dev.name ?: "unknown"} (${dev.address})")
+                        StatusRow(stringResource(R.string.hfp_device), stringResource(R.string.hfp_device_value, dev.name ?: stringResource(R.string.q_unknown), dev.address))
                     }
 
                     Spacer(Modifier.height(8.dp))
@@ -120,7 +123,7 @@ fun HfpScreen(
                     val connectedDevices = remember(bridgeState) { bridge.getConnectedDevices() }
                     if (connectedDevices.isNotEmpty()) {
                         Text(
-                            "Connected HF devices:",
+                            stringResource(R.string.hfp_connected_devices),
                             color = MaterialTheme.colorScheme.onSurface,
                             fontSize = 13.sp,
                             fontWeight = FontWeight.SemiBold,
@@ -132,13 +135,13 @@ fun HfpScreen(
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
                                 Text(
-                                    "${dev.name ?: dev.address}",
+                                    stringResource(R.string.hfp_device_name_or_address, dev.name ?: dev.address),
                                     color = MaterialTheme.colorScheme.onSurface,
                                     fontSize = 12.sp,
                                 )
                                 Row {
                                     SmallButton(
-                                        if (scoConnected) "Stop SCO" else "Start SCO",
+                                        if (scoConnected) stringResource(R.string.hfp_stop_sco) else stringResource(R.string.hfp_start_sco),
                                         onClick = {
                                             if (scoConnected) bridge.stopSco()
                                             else bridge.startSco(dev)
@@ -149,7 +152,7 @@ fun HfpScreen(
                         }
                     } else {
                         Text(
-                            "No HF device connected via system HFP.\nPair the C30 in phone mode first.",
+                            stringResource(R.string.hfp_no_hf_device),
                             color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
                             fontSize = 12.sp,
                         )
@@ -159,17 +162,17 @@ fun HfpScreen(
 
             // ---- Section 2: Custom HFP AG Server ----
             item {
-                SectionCard("Custom HFP AG Server") {
-                    StatusRow("State", agState.name)
+                SectionCard(stringResource(R.string.hfp_ag_server)) {
+                    StatusRow(stringResource(R.string.call_state), agState.name)
                     agDevice?.let { dev ->
-                        StatusRow("Device", "${dev.name ?: "unknown"} (${dev.address})")
+                        StatusRow(stringResource(R.string.hfp_device), stringResource(R.string.hfp_device_value, dev.name ?: stringResource(R.string.q_unknown), dev.address))
                     }
 
                     Spacer(Modifier.height(8.dp))
 
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         SmallButton(
-                            text = if (agState == AgState.Idle) "Start Listening" else "Stop",
+                            text = if (agState == AgState.Idle) stringResource(R.string.hfp_start_listening) else stringResource(R.string.hfp_stop),
                             onClick = {
                                 if (agState == AgState.Idle) agServer.start()
                                 else agServer.stop()
@@ -181,11 +184,11 @@ fun HfpScreen(
 
                     Text(
                         when (agState) {
-                            AgState.Idle -> "Start the server, then put the C30 in universal intercom mode and pair."
-                            AgState.Listening -> "Waiting for an HF device to connect..."
-                            AgState.SLCSetup -> "AT command exchange in progress..."
-                            AgState.SLCReady -> "Service Level Connection established!"
-                            AgState.AudioOpen -> "SCO audio channel open — voice active."
+                            AgState.Idle -> stringResource(R.string.hfp_ag_idle)
+                            AgState.Listening -> stringResource(R.string.hfp_ag_listening)
+                            AgState.SLCSetup -> stringResource(R.string.hfp_ag_slc_setup)
+                            AgState.SLCReady -> stringResource(R.string.hfp_ag_slc_ready)
+                            AgState.AudioOpen -> stringResource(R.string.hfp_ag_audio_open)
                         },
                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
                         fontSize = 12.sp,
@@ -195,10 +198,10 @@ fun HfpScreen(
 
             // ---- Section 3: AT Command Log ----
             item {
-                SectionCard("AT Command Log") {
+                SectionCard(stringResource(R.string.hfp_at_log)) {
                     if (atLog.isEmpty()) {
                         Text(
-                            "No AT commands yet. Start the AG server and connect a device.",
+                            stringResource(R.string.hfp_at_log_empty),
                             color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
                             fontSize = 11.sp,
                         )
@@ -230,10 +233,10 @@ fun HfpScreen(
             item {
                 val bm = ctx.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
                 val bonded = runCatching { bm.adapter.bondedDevices.toList() }.getOrDefault(emptyList())
-                SectionCard("Bonded Devices") {
+                SectionCard(stringResource(R.string.hfp_bonded)) {
                     if (bonded.isEmpty()) {
                         Text(
-                            "No bonded devices",
+                            stringResource(R.string.hfp_bonded_none),
                             color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
                             fontSize = 12.sp,
                         )
@@ -256,7 +259,7 @@ fun HfpScreen(
                                     fontSize = 10.sp,
                                 )
                             }
-                            SmallButton("Connect AG") {
+                            SmallButton(stringResource(R.string.hfp_connect_ag)) {
                                 bridge.connectDevice(dev)
                             }
                         }
@@ -304,7 +307,7 @@ private fun StatusRow(label: String, value: String) {
 private fun SmallButton(text: String, onClick: () -> Unit) {
     androidx.compose.material3.TextButton(
         onClick = onClick,
-        modifier = Modifier.height(32.dp),
+        modifier = Modifier.heightIn(min = 48.dp),
     ) {
         Text(text, fontSize = 11.sp)
     }

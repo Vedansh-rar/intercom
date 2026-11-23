@@ -27,6 +27,8 @@ import com.intercom.app.group.GroupPeer
 import com.intercom.app.location.DistanceUnit
 import com.intercom.app.group.LinkQuality
 import com.intercom.app.location.DistanceText
+import com.intercom.app.R
+import androidx.compose.ui.res.stringResource
 
 /**
  * The opt-in for convoys. Off by default, so two riders see exactly the screen they always
@@ -34,16 +36,17 @@ import com.intercom.app.location.DistanceText
  */
 @Composable
 fun GroupRideCard(enabled: Boolean, onChange: (Boolean) -> Unit) {
+    val groupRideDescription = stringResource(R.string.call_group_ride)
     BrandCard(Modifier.fillMaxWidth()) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text(
-                    "GROUP RIDE",
+                    stringResource(R.string.group_card_title),
                     fontSize = 11.sp, letterSpacing = 1.6.sp,
                     fontWeight = FontWeight.SemiBold, color = Brand.TextDim,
                 )
                 Text(
-                    if (enabled) "On: three or more riders" else "Off: two riders, as usual",
+                    if (enabled) stringResource(R.string.group_on) else stringResource(R.string.group_off),
                     fontSize = 15.sp, color = Brand.TextPrimary,
                 )
             }
@@ -51,14 +54,12 @@ fun GroupRideCard(enabled: Boolean, onChange: (Boolean) -> Unit) {
                 checked = enabled,
                 onCheckedChange = onChange,
                 colors = SwitchDefaults.colors(checkedTrackColor = LocalAccents.current.base),
-                modifier = Modifier.semantics { contentDescription = "Group ride" },
+                modifier = Modifier.semantics { contentDescription = groupRideDescription },
             )
         }
         if (enabled) {
             Text(
-                "Everyone uses the same ride code. The host starts the ride and the others " +
-                    "join it; no pairing needed. Needs Google Play services. Riders further " +
-                    "apart than one phone's range are reached through the riders between them.",
+                stringResource(R.string.group_explain),
                 fontSize = 13.sp, color = Brand.TextDim, lineHeight = 18.sp,
             )
         }
@@ -80,13 +81,13 @@ fun PeerList(
 ) {
     BrandCard(Modifier.fillMaxWidth()) {
         Text(
-            if (peers.isEmpty()) "RIDERS" else "RIDERS  ·  ${peers.size}",
+            if (peers.isEmpty()) stringResource(R.string.group_riders) else stringResource(R.string.group_riders_n, peers.size),
             fontSize = 11.sp, letterSpacing = 1.6.sp,
             fontWeight = FontWeight.SemiBold, color = Brand.TextDim,
         )
         if (peers.isEmpty()) {
             Text(
-                "Nobody has joined yet. Riders appear here as they connect.",
+                stringResource(R.string.group_nobody),
                 fontSize = 14.sp, color = Brand.TextDim, lineHeight = 19.sp,
             )
         }
@@ -100,15 +101,26 @@ fun PeerList(
 @Composable
 private fun PeerRow(p: GroupPeer, onMute: (Int, Boolean) -> Unit, unit: DistanceUnit) {
     val speaking = p.speaking && !p.muted
+    val words = rememberDistanceWords()
+    val quality = qualityWord(p.quality)
+    val srHost = stringResource(R.string.group_sr_host)
+    val srSpeaking = stringResource(R.string.group_sr_speaking)
+    val srMuted = stringResource(R.string.group_sr_muted)
+    val srLink = stringResource(R.string.group_sr_link, quality)
     val summary = buildString {
         append(p.name)
-        if (p.isHost) append(", host")
-        if (speaking) append(", speaking")
-        if (p.muted) append(", muted")
-        append(", link ").append(qualityWord(p.quality))
+        if (p.isHost) append(", ").append(srHost)
+        if (speaking) append(", ").append(srSpeaking)
+        if (p.muted) append(", ").append(srMuted)
+        append(", ").append(srLink)
         // The distance reads out in its own sentence for a screen reader.
-        p.distance?.let { append(", ").append(DistanceText.spoken(null, it, unit).removePrefix("Rider, ")) }
+        p.distance?.let {
+            append(", ").append(DistanceText.spoken(null, it, unit, words).removePrefix(words.rider + ", "))
+        }
     }
+    val muteDescription = if (p.muted) stringResource(R.string.group_unmute_name, p.name)
+    else stringResource(R.string.group_mute_name, p.name)
+    val muteState = stringResource(if (p.muted) R.string.group_state_muted else R.string.group_state_not_muted)
     Row(
         Modifier
             .fillMaxWidth()
@@ -130,12 +142,13 @@ private fun PeerRow(p: GroupPeer, onMute: (Int, Boolean) -> Unit, unit: Distance
                     color = if (p.muted) Brand.TextDim else Brand.TextPrimary,
                 )
                 if (p.isHost) {
-                    Text("  HOST", fontSize = 10.sp, letterSpacing = 1.2.sp, color = LocalAccents.current.base)
+                    Text("  " + stringResource(R.string.group_host_tag), fontSize = 10.sp, letterSpacing = 1.2.sp, color = LocalAccents.current.base)
                 }
             }
             Text(
-                (if (speaking) "Speaking · " else "") +
-                    (if (p.hops <= 1) "Direct" else "${p.hops} hops") + " · " + qualityWord(p.quality),
+                (if (speaking) stringResource(R.string.group_speaking) + " · " else "") +
+                    (if (p.hops <= 1) stringResource(R.string.group_direct)
+                    else stringResource(R.string.group_hops, p.hops)) + " · " + quality,
                 fontSize = 12.sp,
                 color = if (speaking) Brand.Talking else qualityColor(p.quality),
             )
@@ -143,24 +156,27 @@ private fun PeerRow(p: GroupPeer, onMute: (Int, Boolean) -> Unit, unit: Distance
         p.distance?.let { DistanceReadout(name = null, distance = it, unit = unit, compact = true) }
         TextButton(onClick = { onMute(p.id, !p.muted) }) {
             Text(
-                if (p.muted) "Unmute" else "Mute",
+                if (p.muted) stringResource(R.string.group_unmute) else stringResource(R.string.group_mute),
                 fontSize = 14.sp, fontWeight = FontWeight.SemiBold,
                 color = if (p.muted) Brand.Buddy else LocalAccents.current.base,
                 modifier = Modifier.semantics {
-                    contentDescription = if (p.muted) "Unmute ${p.name}" else "Mute ${p.name}"
-                    stateDescription = if (p.muted) "Muted" else "Not muted"
+                    contentDescription = muteDescription
+                    stateDescription = muteState
                 },
             )
         }
     }
 }
 
-private fun qualityWord(q: LinkQuality) = when (q) {
-    LinkQuality.Good -> "good"
-    LinkQuality.Fair -> "fair"
-    LinkQuality.Poor -> "poor"
-    LinkQuality.Unknown -> "unknown"
-}
+@Composable
+private fun qualityWord(q: LinkQuality): String = stringResource(
+    when (q) {
+        LinkQuality.Good -> R.string.q_good
+        LinkQuality.Fair -> R.string.q_fair
+        LinkQuality.Poor -> R.string.q_poor
+        LinkQuality.Unknown -> R.string.q_unknown
+    }
+)
 
 private fun qualityColor(q: LinkQuality): Color = when (q) {
     LinkQuality.Good -> Brand.TextDim

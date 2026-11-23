@@ -21,12 +21,12 @@ import androidx.compose.ui.unit.sp
  * the rules are: one accent, heavy contrast against near-black, and nothing thin.
  */
 object Brand {
-    val Background = Color(0xFF0C1116)
+    val Background: Color get() = if (Comfort.highContrast) Color(0xFF000000) else Color(0xFF0C1116)
     val Surface = Color(0xFF12151A)
     val SurfaceElevated = Color(0xFF171B21)
     /** Warm-tinted fill behind a selected card, as in the mockup's "Connect Rider". */
     val SurfaceSelected = Color(0xFF1F1615)
-    val Border = Color(0xFF23272E)
+    val Border: Color get() = if (Comfort.highContrast) Color(0xFF6B7280) else Color(0xFF23272E)
     val BottomBar = Color(0xFF080A0D)
 
     val Accent = Color(0xFFF97A12)
@@ -38,13 +38,14 @@ object Brand {
     val BlueBright = Color(0xFF5BB0FF)
     val BlueDeep = Color(0xFF1877D6)
 
-    val TextPrimary = Color(0xFFF5F5F5)
-    val TextDim = Color(0xFF8E9095)
+    val TextPrimary: Color get() = if (Comfort.highContrast) Color(0xFFFFFFFF) else Color(0xFFF5F5F5)
+    /** 5.9:1 on the background normally; 13:1 in high-contrast mode. */
+    val TextDim: Color get() = if (Comfort.highContrast) Color(0xFFD9DBDF) else Color(0xFF8E9095)
 
     /** Floor states. Green is this rider, amber is the buddy, grey is a clear channel. */
     val Talking = Color(0xFF34D058)
     val Buddy = Color(0xFFFBBF24)
-    val Idle = Color(0xFF6B7280)
+    val Idle: Color get() = if (Comfort.highContrast) Color(0xFFA7ADB8) else Color(0xFF6B7280)
     val Danger = Color(0xFFEF4444)
 
     val AccentGradient = Brush.verticalGradient(listOf(AccentBright, AccentDeep))
@@ -91,10 +92,10 @@ internal object IntercomColors {
     val talking = Brand.Talking
     val muted = Brand.Buddy
     val danger = Brand.Danger
-    val dim = Brand.TextDim
+    val dim: Color get() = Brand.TextDim
 }
 
-private val Scheme = darkColorScheme(
+private fun scheme() = darkColorScheme(
     primary = Brand.Accent,
     onPrimary = Color(0xFF1A0D02),
     secondary = Brand.Talking,
@@ -121,7 +122,7 @@ private val IntercomTypography = Typography(
 @Composable
 fun RiderIntercomTheme(content: @Composable () -> Unit) {
     MaterialTheme(
-        colorScheme = Scheme,
+        colorScheme = scheme(),
         typography = IntercomTypography,
         content = content,
     )

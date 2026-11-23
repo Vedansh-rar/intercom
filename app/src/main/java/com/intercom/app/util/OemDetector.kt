@@ -7,6 +7,8 @@ import android.net.Uri
 import android.os.Build
 import android.os.PowerManager
 import android.provider.Settings
+import androidx.annotation.StringRes
+import com.intercom.app.R
 
 /**
  * Several manufacturers kill long-running foreground services whatever the standard
@@ -18,7 +20,8 @@ object OemDetector {
 
     data class Guidance(
         val vendor: String,
-        val steps: List<String>,
+        /** String resources; shown with `stringResource` / `context.getString`. */
+        @StringRes val steps: List<Int>,
         /** Vendor settings screen to open directly, when one is known. */
         val intent: Intent?,
     )
@@ -27,16 +30,19 @@ object OemDetector {
 
     fun isAggressiveVendor(): Boolean = guidanceFor() != null
 
-    fun guidanceFor(): Guidance? = when {
+    fun guidanceFor(): Guidance? = guidanceFor(manufacturer)
+
+    /** Split out so the vendor matching can be unit-tested without a device. Expects a lower-case name. */
+    fun guidanceFor(manufacturer: String): Guidance? = when {
         manufacturer.contains("xiaomi") || manufacturer.contains("redmi") ||
             manufacturer.contains("poco") -> Guidance(
             vendor = "Xiaomi / Redmi / POCO",
             steps = listOf(
-                "Settings > Apps > Manage apps > Rider Intercom",
-                "Turn on Autostart",
-                "Battery saver > choose No restrictions",
-                "Other permissions > allow Display pop-up windows while running in background",
-                "In Recents, pull the app card down and tap the padlock so it is not cleared",
+                R.string.oem_mi_1,
+                R.string.oem_mi_2,
+                R.string.oem_mi_3,
+                R.string.oem_mi_4,
+                R.string.oem_mi_5,
             ),
             intent = tryComponent(
                 "com.miui.securitycenter",
@@ -46,9 +52,9 @@ object OemDetector {
         manufacturer.contains("oppo") || manufacturer.contains("realme") -> Guidance(
             vendor = "OPPO / realme",
             steps = listOf(
-                "Settings > Battery > App battery management > Rider Intercom",
-                "Turn off Smart control, turn on Allow background running",
-                "Settings > Apps > Rider Intercom > Allow auto-launch",
+                R.string.oem_oppo_1,
+                R.string.oem_oppo_2,
+                R.string.oem_oppo_3,
             ),
             intent = tryComponent(
                 "com.coloros.safecenter",
@@ -58,9 +64,9 @@ object OemDetector {
         manufacturer.contains("vivo") || manufacturer.contains("iqoo") -> Guidance(
             vendor = "vivo / iQOO",
             steps = listOf(
-                "Settings > Battery > Background power consumption management",
-                "Set Rider Intercom to Allow high background power consumption",
-                "i Manager > App manager > Autostart manager > turn Rider Intercom on",
+                R.string.oem_vivo_1,
+                R.string.oem_vivo_2,
+                R.string.oem_vivo_3,
             ),
             intent = tryComponent(
                 "com.vivo.permissionmanager",
@@ -70,9 +76,9 @@ object OemDetector {
         manufacturer.contains("oneplus") -> Guidance(
             vendor = "OnePlus",
             steps = listOf(
-                "Settings > Battery > Battery optimisation > Rider Intercom > Don't optimise",
-                "Settings > Battery > Advanced > turn off Sleep standby optimisation",
-                "In Recents, lock the app card",
+                R.string.oem_oneplus_1,
+                R.string.oem_oneplus_2,
+                R.string.oem_oneplus_3,
             ),
             intent = tryComponent(
                 "com.oneplus.security",
@@ -82,9 +88,9 @@ object OemDetector {
         manufacturer.contains("samsung") -> Guidance(
             vendor = "Samsung",
             steps = listOf(
-                "Settings > Battery > Background usage limits",
-                "Add Rider Intercom to Never sleeping apps",
-                "Make sure it is not in Sleeping apps or Deep sleeping apps",
+                R.string.oem_samsung_1,
+                R.string.oem_samsung_2,
+                R.string.oem_samsung_3,
             ),
             intent = tryComponent(
                 "com.samsung.android.lool",
@@ -94,8 +100,8 @@ object OemDetector {
         manufacturer.contains("huawei") || manufacturer.contains("honor") -> Guidance(
             vendor = "Huawei / Honor",
             steps = listOf(
-                "Settings > Battery > App launch > Rider Intercom",
-                "Turn off Manage automatically, then enable all three manual options",
+                R.string.oem_huawei_1,
+                R.string.oem_huawei_2,
             ),
             intent = tryComponent(
                 "com.huawei.systemmanager",
@@ -105,9 +111,10 @@ object OemDetector {
         else -> null
     }
 
-    private fun tryComponent(pkg: String, cls: String): Intent =
-        Intent().setComponent(ComponentName(pkg, cls))
-            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    private fun tryComponent(pkg: String, cls: String): Intent = Intent().apply {
+        component = ComponentName(pkg, cls)
+        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    }
 
     fun canOpen(context: Context, intent: Intent?): Boolean {
         if (intent == null) return false

@@ -43,6 +43,8 @@ import com.google.zxing.EncodeHintType
 import com.google.zxing.qrcode.QRCodeWriter
 import com.google.zxing.qrcode.decoder.ErrorCorrectionLevel
 import com.intercom.app.security.RideCode
+import com.intercom.app.R
+import androidx.compose.ui.res.stringResource
 
 /**
  * The shared secret for the ride.
@@ -68,11 +70,14 @@ fun RideCodeCard(
     var showQr by remember { mutableStateOf(false) }
     var editing by remember { mutableStateOf(false) }
     var typed by remember { mutableStateOf("") }
-    var typedError by remember { mutableStateOf<String?>(null) }
+    var typedError by remember { mutableStateOf<RideCode.Parsed.Invalid?>(null) }
+    val notARideCode = stringResource(R.string.code_qr_not_code)
+    val qrUnavailable = stringResource(R.string.code_qr_unavailable)
+    val codeDescription = stringResource(R.string.code_description, parsed?.display ?: stringResource(R.string.code_not_set))
 
     BrandCard(modifier.fillMaxWidth()) {
         Text(
-            "RIDE CODE",
+            stringResource(R.string.code_title),
             fontSize = 11.sp, letterSpacing = 1.6.sp,
             fontWeight = FontWeight.SemiBold, color = Brand.TextDim,
         )
@@ -82,52 +87,48 @@ fun RideCodeCard(
             fontWeight = FontWeight.SemiBold,
             fontFamily = FontFamily.Monospace,
             color = Brand.TextPrimary,
-            modifier = Modifier.semantics {
-                contentDescription = "Ride code: ${parsed?.display ?: "not set"}"
-            },
+            modifier = Modifier.semantics { contentDescription = codeDescription },
         )
         Text(
-            "The same code on both phones. It is never sent over the air - it only proves " +
-                "you and your buddy both know it, and it keys the encryption.",
+            stringResource(R.string.code_explain),
             fontSize = 13.sp, color = Brand.TextDim, lineHeight = 18.sp,
         )
         if (parsed != null && parsed.isQuickCode) {
             Text(
-                "A 6-digit code is quick to type but easy to guess for anyone who records " +
-                    "your handshake. For a ride where that matters, use words.",
+                stringResource(R.string.code_quick_warning),
                 fontSize = 13.sp, color = Brand.Buddy, lineHeight = 18.sp,
             )
         }
 
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             SecondaryButton(
-                "New words",
+                stringResource(R.string.code_new_words),
                 { onChange(RideCode.generate().canonical); showQr = false },
                 modifier = Modifier.weight(1f), height = 46.dp,
             )
             SecondaryButton(
-                "New number",
+                stringResource(R.string.code_new_number),
                 { onChange(RideCode.generateDigits().canonical); showQr = false },
                 modifier = Modifier.weight(1f), height = 46.dp,
             )
         }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             SecondaryButton(
-                if (showQr) "Hide QR" else "Show QR",
+                if (showQr) stringResource(R.string.code_hide_qr) else stringResource(R.string.code_show_qr),
                 { showQr = !showQr },
                 modifier = Modifier.weight(1f), height = 46.dp,
                 enabled = parsed != null,
             )
             SecondaryButton(
-                "Scan QR",
+                stringResource(R.string.code_scan_qr),
                 {
-                    scanQr(context) { raw ->
+                    scanQr(context, qrUnavailable) { raw ->
                         val scanned = raw?.let { RideCode.fromQrPayload(it) }
                         if (scanned != null) {
                             onChange(scanned.canonical)
                             editing = false
                         } else if (raw != null) {
-                            toast(context, "That QR is not a ride code")
+                            toast(context, notARideCode)
                         }
                     }
                 },
@@ -140,23 +141,23 @@ fun RideCodeCard(
                 QrImage(RideCode.toQrPayload(parsed))
             }
             Text(
-                "Show this only to your buddy.",
+                stringResource(R.string.code_show_only_buddy),
                 fontSize = 12.sp, color = Brand.TextDim,
             )
         }
 
         SecondaryButton(
-            if (editing) "Cancel" else "Type a code",
+            if (editing) stringResource(R.string.common_cancel) else stringResource(R.string.code_type),
             { editing = !editing; typed = ""; typedError = null },
             height = 46.dp, color = Brand.TextDim,
         )
         if (editing) {
-            val errorText = typedError
+            val errorText = typedError?.let { rideCodeProblemText(it) }
             OutlinedTextField(
                 value = typed,
                 onValueChange = { typed = it; typedError = null },
                 singleLine = true,
-                placeholder = { Text("amber anchor apple arrow aspen", color = Brand.TextDim) },
+                placeholder = { Text(stringResource(R.string.code_example), color = Brand.TextDim) },
                 isError = typedError != null,
                 supportingText = if (errorText != null) {
                     { Text(errorText, color = Brand.Danger) }
@@ -174,7 +175,7 @@ fun RideCodeCard(
                 modifier = Modifier.fillMaxWidth(),
             )
             PrimaryButton(
-                "Use this code",
+                stringResource(R.string.code_use),
                 enabled = typed.isNotBlank(),
                 onClick = {
                     when (val r = RideCode.parse(typed)) {
@@ -183,7 +184,7 @@ fun RideCodeCard(
                             editing = false
                             typed = ""
                         }
-                        is RideCode.Parsed.Invalid -> typedError = r.reason
+                        is RideCode.Parsed.Invalid -> typedError = r
                     }
                 },
                 height = 48.dp,
@@ -206,12 +207,13 @@ private fun QrImage(payload: String) {
             )
         }.getOrNull()
     }
+    val qrDescription = stringResource(R.string.code_qr_description)
     Canvas(
         Modifier
             .size(220.dp)
             .clip(RoundedCornerShape(12.dp))
             .background(Color.White)
-            .semantics { contentDescription = "QR code for the ride code" },
+            .semantics { contentDescription = qrDescription },
     ) {
         val m = matrix ?: return@Canvas
         val cell = size.width / m.width
@@ -235,7 +237,7 @@ private fun QrImage(payload: String) {
  * app needs no camera permission. Without Play services the call fails and the rider is
  * told to type the code instead.
  */
-private fun scanQr(context: Context, onResult: (String?) -> Unit) {
+private fun scanQr(context: Context, unavailableMessage: String, onResult: (String?) -> Unit) {
     val options = GmsBarcodeScannerOptions.Builder()
         .setBarcodeFormats(Barcode.FORMAT_QR_CODE)
         .build()
@@ -243,10 +245,22 @@ private fun scanQr(context: Context, onResult: (String?) -> Unit) {
         GmsBarcodeScanning.getClient(context, options).startScan()
             .addOnSuccessListener { onResult(it.rawValue ?: "") }
             .addOnCanceledListener { /* the rider backed out */ }
-            .addOnFailureListener { toast(context, "QR scanning is not available here - type the code") }
-    }.onFailure { toast(context, "QR scanning is not available here - type the code") }
+            .addOnFailureListener { toast(context, unavailableMessage) }
+    }.onFailure { toast(context, unavailableMessage) }
 }
 
 private fun toast(context: Context, message: String) {
     Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+}
+
+/** What went wrong with a typed code, in the rider's language. */
+@Composable
+private fun rideCodeProblemText(p: RideCode.Parsed.Invalid): String = when (p.problem) {
+    RideCode.Problem.Empty -> stringResource(R.string.code_err_empty)
+    RideCode.Problem.NumberLength -> stringResource(R.string.code_err_digits, RideCode.DIGITS_LENGTH)
+    RideCode.Problem.WordsOnly -> stringResource(R.string.code_err_words_only, RideCode.DIGITS_LENGTH)
+    RideCode.Problem.TooFewWords -> stringResource(R.string.code_err_too_few, RideCode.MIN_WORDS)
+    RideCode.Problem.TooManyWords -> stringResource(R.string.code_err_too_many, RideCode.MAX_WORDS)
+    RideCode.Problem.UnknownWord -> stringResource(R.string.code_err_unknown_word, p.detail ?: "")
+    RideCode.Problem.Other -> p.reason
 }

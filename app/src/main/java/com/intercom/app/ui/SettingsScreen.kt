@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.verticalScroll
@@ -41,6 +42,10 @@ import com.intercom.app.util.Settings as RiderSettings
 import com.intercom.app.util.TalkMode
 import com.intercom.app.util.TransportPreference
 import kotlin.math.roundToInt
+import androidx.compose.foundation.selection.toggleable
+import com.intercom.app.util.AppLanguage
+import com.intercom.app.R
+import androidx.compose.ui.res.stringResource
 
 /**
  * Everything the rider can change. The wording matters here: each option says what it
@@ -62,6 +67,10 @@ fun SettingsScreen(
     /** The rider was asked for location and said no (or allowed approximate only). */
     locationDenied: Boolean = false,
     onOpenAppSettings: () -> Unit = {},
+    onLanguage: (AppLanguage) -> Unit = {},
+    onShareLog: () -> Unit = {},
+    shareLogBusy: Boolean = false,
+    onRunSetup: () -> Unit = {},
 ) {
     Column(
         Modifier.fillMaxSize().background(Brand.Background)
@@ -76,90 +85,107 @@ fun SettingsScreen(
                 )
             },
         ) {
-            ScreenHeader(title = "Settings", onBack = onBack)
+            ScreenHeader(title = stringResource(R.string.common_settings), onBack = onBack)
         }
         if (settings.legacyAudioPath) {
             Text(
-                "Legacy audio path is on (AudioRecord/AudioTrack instead of Oboe). " +
-                    "Long-press the title to switch back. Applies from the next call.",
+                stringResource(R.string.set_legacy_on),
                 style = MaterialTheme.typography.bodyMedium,
                 color = IntercomColors.dim,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
             )
         }
 
-        SectionCard(title = "How you talk") {
+        SectionCard(title = stringResource(R.string.set_language)) {
             Text(
-                "An open call is the point of this app: the channel is always up and " +
-                    "speaking is all it takes. Push-to-talk is there for helmets too noisy " +
-                    "for a detector, or riders who would rather hold a button.",
+                stringResource(R.string.set_language_sub),
+                style = MaterialTheme.typography.bodyMedium,
+                color = IntercomColors.dim,
+            )
+            AppLanguage.entries.forEach { lang ->
+                ChoiceRow(
+                    selected = settings.language == lang,
+                    title = stringResource(lang.titleRes()),
+                    subtitle = if (lang == AppLanguage.System) stringResource(R.string.set_language_system_sub) else "",
+                    onClick = { onLanguage(lang) },
+                )
+            }
+        }
+
+        SectionCard(title = stringResource(R.string.set_comfort)) {
+            ToggleRow(
+                checked = settings.highContrast,
+                title = stringResource(R.string.set_high_contrast),
+                subtitle = stringResource(R.string.set_high_contrast_sub),
+                onChange = { v -> onChange { it.copy(highContrast = v) } },
+            )
+            ToggleRow(
+                checked = settings.largeButtons,
+                title = stringResource(R.string.set_large_buttons),
+                subtitle = stringResource(R.string.set_large_buttons_sub),
+                onChange = { v -> onChange { it.copy(largeButtons = v) } },
+            )
+        }
+
+        SectionCard(title = stringResource(R.string.set_how_talk)) {
+            Text(
+                stringResource(R.string.set_talk_explain),
                 style = MaterialTheme.typography.bodyMedium,
                 color = IntercomColors.dim,
             )
             TalkMode.entries.forEach { mode ->
                 ChoiceRow(
                     selected = settings.talkMode == mode,
-                    title = mode.label,
+                    title = stringResource(mode.labelRes()),
                     subtitle = when (mode) {
-                        TalkMode.Open -> "Voice-activated. First speaker takes the channel; " +
-                            "everyone else is muted until they stop."
-                        TalkMode.PushToTalk -> "The detector never opens the channel. Only " +
-                            "the on-screen button, the notification or the headset button do."
+                        TalkMode.Open -> stringResource(R.string.set_talk_open_sub)
+                        TalkMode.PushToTalk -> stringResource(R.string.set_talk_ptt_sub)
                     },
                     onClick = { onChange { it.copy(talkMode = mode) } },
                 )
             }
         }
 
-        SectionCard(title = "Microphone") {
+        SectionCard(title = stringResource(R.string.set_microphone)) {
             Text(
-                "The headset mic is the one trap in this design: opening it drops the " +
-                    "headset off A2DP and music turns mono for the rest of the ride.",
+                stringResource(R.string.set_mic_explain),
                 style = MaterialTheme.typography.bodyMedium,
                 color = IntercomColors.dim,
             )
             MicSource.entries.forEach { src ->
                 ChoiceRow(
                     selected = settings.micSource == src,
-                    title = micTitle(src),
-                    subtitle = micSubtitle(src),
+                    title = stringResource(src.titleRes()),
+                    subtitle = stringResource(src.subtitleRes()),
                     onClick = { onChange { it.copy(micSource = src) } },
                 )
             }
         }
 
-        SectionCard(title = "Noise cancellation") {
+        SectionCard(title = stringResource(R.string.set_noise_cancel)) {
             Text(
-                "This cleans the voice you send, so your buddy hears you instead of your " +
-                    "engine. It cannot cancel noise at your own ear the way an aviation " +
-                    "headset does \u2014 that needs a microphone inside the earcup and a " +
-                    "sub-millisecond loop, which is a property of the headset, not the phone.",
+                stringResource(R.string.set_noise_explain),
                 style = MaterialTheme.typography.bodyMedium,
                 color = IntercomColors.dim,
             )
-            Text("Noise reduction engine", style = MaterialTheme.typography.bodyLarge)
+            Text(stringResource(R.string.set_noise_engine), style = MaterialTheme.typography.bodyLarge)
             ChoiceRow(
                 selected = settings.noiseEngine == NoiseEngine.Standard,
-                title = "Standard (recommended)",
-                subtitle = "Light on the battery and the processor, with a strength you choose. " +
-                    "Good for steady noise such as engine hum and road roar.",
+                title = stringResource(R.string.set_engine_standard),
+                subtitle = stringResource(R.string.set_engine_standard_sub),
                 onClick = { onChange { it.copy(noiseEngine = NoiseEngine.Standard) } },
             )
             ChoiceRow(
                 selected = settings.noiseEngine == NoiseEngine.Ai,
-                title = "AI noise reduction",
-                subtitle = "A small neural network (RNNoise) that copes better with gusty, " +
-                    "uneven noise. It has no strength setting, uses noticeably more of the " +
-                    "processor and battery, and adds about 11 ms of delay. If your phone cannot " +
-                    "keep up, the app switches back to Standard by itself.",
+                title = stringResource(R.string.set_engine_ai),
+                subtitle = stringResource(R.string.set_engine_ai_sub),
                 onClick = { onChange { it.copy(noiseEngine = NoiseEngine.Ai) } },
             )
             if (settings.noiseEngine == NoiseEngine.Ai) {
                 ToggleRow(
                     checked = settings.noiseSuppression != NoiseSuppression.Off,
-                    title = "AI noise reduction on",
-                    subtitle = "Switch off to send your voice with only the wind low-cut and the " +
-                        "noise gate.",
+                    title = stringResource(R.string.set_ai_on),
+                    subtitle = stringResource(R.string.set_ai_on_sub),
                     onChange = { on ->
                         onChange {
                             it.copy(
@@ -173,12 +199,8 @@ fun SettingsScreen(
             } else {
                 ToggleRow(
                     checked = settings.autoNoise,
-                    title = "Auto: choose the strength from my speed",
-                    subtitle = "Light in town, Medium on faster roads, Strong on the highway, " +
-                        "switching only after the speed has held for about 10 seconds. Needs " +
-                        "\"Share my location\" below; until there is a GPS fix it uses " +
-                        "the strength you picked, and it keeps its last choice if the fix is " +
-                        "lost. Picking a strength yourself turns Auto off.",
+                    title = stringResource(R.string.set_auto_noise),
+                    subtitle = stringResource(R.string.set_auto_noise_sub),
                     onChange = { on ->
                         onChange {
                             it.copy(
@@ -193,32 +215,29 @@ fun SettingsScreen(
                 NoiseSuppression.entries.forEach { ns ->
                     ChoiceRow(
                         selected = settings.noiseSuppression == ns,
-                        title = ns.label,
-                        subtitle = noiseSubtitle(ns),
+                        title = stringResource(ns.labelRes()),
+                        subtitle = stringResource(ns.subtitleRes()),
                         onClick = { onChange { it.copy(noiseSuppression = ns, autoNoise = false) } },
                     )
                 }
             }
             if (platformEffects.isNotEmpty()) {
                 Text(
-                    "This phone also offers: $platformEffects. Those run in hardware and " +
-                        "are used automatically when noise cancellation is on.",
+                    stringResource(R.string.set_platform_effects, platformEffects),
                     style = MaterialTheme.typography.bodyMedium,
                     color = IntercomColors.dim,
                 )
             }
         }
 
-        SectionCard(title = "Wind low-cut") {
+        SectionCard(title = stringResource(R.string.set_wind_cut)) {
             Text(
-                "Removes the low thump of wind and engine from the voice you send. Raise it " +
-                    "if the highway still booms in your buddy's ears; lower it if your voice " +
-                    "sounds thin.",
+                stringResource(R.string.set_wind_cut_sub),
                 style = MaterialTheme.typography.bodyMedium,
                 color = IntercomColors.dim,
             )
             Text(
-                if (settings.windCutHz == 0) "Off" else "${settings.windCutHz} Hz",
+                if (settings.windCutHz == 0) stringResource(R.string.common_off) else stringResource(R.string.set_hz, settings.windCutHz),
                 style = MaterialTheme.typography.bodyLarge,
             )
             Slider(
@@ -234,15 +253,14 @@ fun SettingsScreen(
             if (settings.windCutHz != 0) {
                 ToggleRow(
                     checked = settings.windCutSteep,
-                    title = "Steeper slope",
-                    subtitle = "Cuts twice as sharply below the frequency. More wind removed, " +
-                        "slightly more change to the sound near the cutoff.",
+                    title = stringResource(R.string.set_steeper),
+                    subtitle = stringResource(R.string.set_steeper_sub),
                     onChange = { v -> onChange { it.copy(windCutSteep = v) } },
                 )
             }
             if (settings.windCutHz != WindCutFilter.DEFAULT_HZ || settings.windCutSteep) {
                 SecondaryButton(
-                    text = "Reset to ${WindCutFilter.DEFAULT_HZ} Hz",
+                    text = stringResource(R.string.set_reset_hz, WindCutFilter.DEFAULT_HZ),
                     onClick = {
                         onChange { it.copy(windCutHz = WindCutFilter.DEFAULT_HZ, windCutSteep = false) }
                     },
@@ -250,62 +268,56 @@ fun SettingsScreen(
             }
         }
 
-        SectionCard(title = "Even out my voice") {
+        SectionCard(title = stringResource(R.string.set_even_voice)) {
             ToggleRow(
                 checked = settings.agc,
-                title = "Even out my voice level",
-                subtitle = "Slowly raises your voice when you talk quietly or the mic has slipped, " +
-                    "lowers it when you shout, and stops it ever clipping. It changes over a " +
-                    "few seconds, never between words, and it leaves silence alone. Off by default.",
+                title = stringResource(R.string.set_even_voice_level),
+                subtitle = stringResource(R.string.set_even_voice_sub),
                 onChange = { v -> onChange { it.copy(agc = v) } },
             )
         }
 
-        SectionCard(title = "Voice detection") {
+        SectionCard(title = stringResource(R.string.set_voice_detect)) {
             Text(
-                "How eagerly the channel opens when you speak. Lower sensitivity at " +
-                    "highway speed, higher with a boom mic.",
+                stringResource(R.string.set_voice_detect_sub),
                 style = MaterialTheme.typography.bodyMedium,
                 color = IntercomColors.dim,
             )
             VadSensitivity.entries.forEach { v ->
                 ChoiceRow(
                     selected = settings.vadSensitivity == v,
-                    title = v.name,
-                    subtitle = "${v.thresholdDb.toInt()} dB over the noise floor, " +
-                        "${v.attackFrames * 20} ms to open",
+                    title = stringResource(v.labelRes()),
+                    subtitle = stringResource(R.string.set_vad_row, v.thresholdDb.toInt(), v.attackFrames * 20),
                     onClick = { onChange { it.copy(vadSensitivity = v) } },
                 )
             }
         }
 
-        SectionCard(title = "Transport") {
+        SectionCard(title = stringResource(R.string.set_transport)) {
             TransportPreference.entries.forEach { t ->
                 ChoiceRow(
                     selected = settings.transport == t,
-                    title = t.name,
+                    title = stringResource(t.labelRes()),
                     subtitle = when (t) {
-                        TransportPreference.Auto -> "Bluetooth, moving to Wi-Fi Direct if it degrades"
-                        TransportPreference.Bluetooth -> "Bluetooth RFCOMM only, 10 to 30 m"
-                        TransportPreference.Range -> "Start on Wi-Fi Direct: 50-100 m, more battery"
+                        TransportPreference.Auto -> stringResource(R.string.set_transport_auto_sub)
+                        TransportPreference.Bluetooth -> stringResource(R.string.set_transport_bt_sub)
+                        TransportPreference.Range -> stringResource(R.string.set_transport_range_sub)
                     },
 
                     onClick = { onChange { it.copy(transport = t) } },
                 )
             }
             Text(
-                if (wifiDirectReady) "Wi-Fi Direct is ready on this phone. Auto will move " +
-                    "the call onto it if Bluetooth starts losing frames."
-                else "Wi-Fi Direct is not usable right now: $wifiDirectProblem. Auto will " +
-                    "stay on Bluetooth until that is fixed.",
+                if (wifiDirectReady) stringResource(R.string.set_wifi_ready)
+                else stringResource(R.string.set_wifi_not_ready, wifiDirectProblem),
                 style = MaterialTheme.typography.bodyMedium,
                 color = if (wifiDirectReady) IntercomColors.dim else Brand.Buddy,
             )
         }
 
-        SectionCard(title = "Voice level") {
+        SectionCard(title = stringResource(R.string.set_voice_level)) {
             Text(
-                "${settings.voiceLevelDb} dB",
+                stringResource(R.string.set_db, settings.voiceLevelDb),
                 style = MaterialTheme.typography.bodyLarge,
             )
             Slider(
@@ -322,62 +334,54 @@ fun SettingsScreen(
                 ),
             )
             Text(
-                "Music stays on the phone's media volume. The headset volume rocker " +
-                    "moves both together, because the voice plays as media.",
+                stringResource(R.string.set_voice_level_sub),
                 style = MaterialTheme.typography.bodyMedium,
                 color = IntercomColors.dim,
             )
         }
 
-        SectionCard(title = "Music") {
+        SectionCard(title = stringResource(R.string.common_music)) {
             ToggleRow(
                 checked = settings.takeAudioFocus,
-                title = "Duck music while talking",
-                subtitle = "Off: the intercom takes no audio focus at all, music keeps " +
-                    "playing at full volume and the voice is lifted 6 dB instead. Use this " +
-                    "if your music app pauses rather than ducking.",
+                title = stringResource(R.string.set_duck),
+                subtitle = stringResource(R.string.set_duck_sub),
                 onChange = { v -> onChange { it.copy(takeAudioFocus = v) } },
             )
         }
 
-        SectionCard(title = "Mute beep") {
+        SectionCard(title = stringResource(R.string.set_mute_beep)) {
             ToggleRow(
                 checked = settings.beepWhenMuted,
-                title = "Beep when you talk over your buddy",
-                subtitle = "A short local tone, never sent to the other rider, at most " +
-                    "one every two seconds.",
+                title = stringResource(R.string.set_mute_beep_title),
+                subtitle = stringResource(R.string.set_mute_beep_sub),
                 onChange = { v -> onChange { it.copy(beepWhenMuted = v) } },
             )
         }
 
-        SectionCard(title = "Headset button") {
+        SectionCard(title = stringResource(R.string.set_headset_button)) {
             ToggleRow(
                 checked = settings.headsetButtonEnabled,
-                title = "Use the headset button",
-                subtitle = "Double press toggles push-to-talk, triple or long press ends " +
-                    "the call. Single press is left to your music app.",
+                title = stringResource(R.string.set_use_headset_button),
+                subtitle = stringResource(R.string.set_headset_button_sub),
                 onChange = { v -> onChange { it.copy(headsetButtonEnabled = v) } },
             )
             Text(
                 if (lastKeyCode == 0)
-                    "Calibration: start a call, then press your headset button here to " +
-                        "see which key code it sends."
-                else "Last key code received: $lastKeyCode",
+                    stringResource(R.string.set_keycode_hint)
+                else stringResource(R.string.set_keycode_last, lastKeyCode),
                 style = MaterialTheme.typography.bodyMedium,
                 color = IntercomColors.dim,
             )
             Text(
-                "Headsets differ, and some map their main button to the voice assistant, " +
-                    "which the app cannot change.",
+                stringResource(R.string.set_headset_differ),
                 style = MaterialTheme.typography.bodyMedium,
                 color = IntercomColors.dim,
             )
         }
 
-        SectionCard(title = "Remote buttons") {
+        SectionCard(title = stringResource(R.string.set_remote_buttons)) {
             Text(
-                "Tap a row to change what it does. Press-and-hold gestures depend on your " +
-                    "headset, so check them with the key code line above.",
+                stringResource(R.string.set_remote_buttons_sub),
                 style = MaterialTheme.typography.bodyMedium,
                 color = IntercomColors.dim,
             )
@@ -388,15 +392,16 @@ fun SettingsScreen(
                 Row(
                     Modifier
                         .fillMaxWidth()
+                        .heightIn(min = Comfort.MIN_TOUCH_DP.dp)
                         .clickable(role = Role.Button, onClick = {
                             onChange { it.copy(buttons = it.buttons.with(input, action.next())) }
                         })
                         .padding(vertical = 8.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                 ) {
-                    Text(input.label, style = MaterialTheme.typography.bodyLarge)
+                    Text(stringResource(input.labelRes()), style = MaterialTheme.typography.bodyLarge)
                     Text(
-                        action.label,
+                        stringResource(action.labelRes()),
                         style = MaterialTheme.typography.bodyMedium,
                         color = Brand.Accent,
                         modifier = Modifier.weight(1f).padding(start = 12.dp),
@@ -406,64 +411,54 @@ fun SettingsScreen(
             }
             ToggleRow(
                 checked = settings.volumeKeys,
-                title = "Use the volume buttons during a call",
-                subtitle = "While a call is running the volume buttons stop changing the " +
-                    "volume and do what is set above instead, and the headset play/pause " +
-                    "button is taken by the intercom too. Off by default.",
+                title = stringResource(R.string.set_volume_keys),
+                subtitle = stringResource(R.string.set_volume_keys_sub),
                 onChange = { v -> onChange { it.copy(volumeKeys = v) } },
             )
             SecondaryButton(
-                text = "Reset buttons to defaults",
+                text = stringResource(R.string.set_reset_buttons),
                 onClick = { onChange { it.copy(buttons = ButtonMapping()) } },
                 height = 46.dp,
             )
         }
 
-        SectionCard(title = "Music and tones") {
+        SectionCard(title = stringResource(R.string.set_music_tones)) {
             ToggleRow(
                 checked = settings.duckWhenITalk,
-                title = "Lower music when I talk too",
-                subtitle = "Music always lowers while your buddy speaks. Turn this on to lower " +
-                    "it while you speak as well.",
+                title = stringResource(R.string.set_duck_own),
+                subtitle = stringResource(R.string.set_duck_own_sub),
                 onChange = { v -> onChange { it.copy(duckWhenITalk = v) } },
             )
             ToggleRow(
                 checked = settings.linkTones,
-                title = "Tones when the link drops and returns",
-                subtitle = "A short falling tone when the connection is lost, a rising one " +
-                    "when it comes back. The app keeps trying to reconnect either way.",
+                title = stringResource(R.string.set_link_tones),
+                subtitle = stringResource(R.string.set_link_tones_sub),
                 onChange = { v -> onChange { it.copy(linkTones = v) } },
             )
         }
 
-        SectionCard(title = "Location") {
+        SectionCard(title = stringResource(R.string.set_location)) {
             ToggleRow(
                 checked = settings.shareLocation,
-                title = "Share my location with riders",
-                subtitle = "Shows how far away your buddy or group is, and lets them see how " +
-                    "far you are. While this is on, your phone reads its GPS and sends your " +
-                    "position straight to the riders in your call, encrypted with your ride " +
-                    "code. It goes phone to phone only: there is no server and no internet, " +
-                    "nothing is stored, and it stops when the call ends. You see distances " +
-                    "only while you share your own. It costs some battery. Off by default.",
+                title = stringResource(R.string.set_share_location),
+                subtitle = stringResource(R.string.set_share_location_sub),
                 onChange = onShareLocation,
             )
             if (locationDenied) {
                 Text(
-                    "Precise location was not allowed, so nothing is shared. Allow \"Precise\" " +
-                        "location for this app in the phone's settings, then switch this on.",
+                    stringResource(R.string.set_location_denied),
                     style = MaterialTheme.typography.bodyMedium,
                     color = Brand.Buddy,
                 )
-                SecondaryButton("Open app settings", onOpenAppSettings)
+                SecondaryButton(stringResource(R.string.set_open_app_settings), onOpenAppSettings)
             }
-            Text("Show distances in", style = MaterialTheme.typography.bodyLarge)
+            Text(stringResource(R.string.set_distances_in), style = MaterialTheme.typography.bodyLarge)
             DistanceUnit.entries.forEach { u ->
                 ChoiceRow(
                     selected = settings.distanceUnit == u,
                     title = when (u) {
-                        DistanceUnit.Kilometres -> "Kilometres (m / km)"
-                        DistanceUnit.Miles -> "Miles (ft / mi)"
+                        DistanceUnit.Kilometres -> stringResource(R.string.set_unit_km)
+                        DistanceUnit.Miles -> stringResource(R.string.set_unit_mi)
                     },
                     subtitle = "",
                     onClick = { onChange { it.copy(distanceUnit = u) } },
@@ -471,17 +466,15 @@ fun SettingsScreen(
             }
             ToggleRow(
                 checked = settings.fallingBehindAlert,
-                title = "Warn me when a rider falls behind",
-                subtitle = "A short beep on your own phone (never sent to anyone) when a " +
-                    "rider stays farther away than the distance below for the time below, " +
-                    "then again every 30 seconds while they are still out. Needs sharing on.",
+                title = stringResource(R.string.set_behind_warn),
+                subtitle = stringResource(R.string.set_behind_warn_sub),
                 onChange = { v -> onChange { it.copy(fallingBehindAlert = v) } },
             )
             if (settings.fallingBehindAlert) {
                 val far = DistanceFormat.format(
                     settings.fallingBehindMeters.toDouble(), settings.distanceUnit,
                 ).text
-                Text("Farther than $far", style = MaterialTheme.typography.bodyLarge)
+                Text(stringResource(R.string.set_behind_farther, far), style = MaterialTheme.typography.bodyLarge)
                 Slider(
                     value = settings.fallingBehindMeters.toFloat(),
                     onValueChange = { v ->
@@ -492,7 +485,7 @@ fun SettingsScreen(
                     colors = sliderColors(),
                 )
                 Text(
-                    "for ${settings.fallingBehindSeconds} seconds",
+                    stringResource(R.string.set_behind_seconds, settings.fallingBehindSeconds),
                     style = MaterialTheme.typography.bodyLarge,
                 )
                 Slider(
@@ -507,29 +500,48 @@ fun SettingsScreen(
             }
         }
 
-        SectionCard(title = "Ride security") {
+        SectionCard(title = stringResource(R.string.set_ride_security)) {
             Text(
-                "Calls are encrypted with your ride code. A buddy who has the wrong code, " +
-                    "or whose app cannot encrypt, is refused.",
+                stringResource(R.string.set_ride_security_sub),
                 style = MaterialTheme.typography.bodyMedium,
                 color = IntercomColors.dim,
             )
             ToggleRow(
                 checked = settings.allowLegacyBuddy,
-                title = "Allow an unencrypted buddy",
-                subtitle = "Lets a buddy on an older version of this app connect without " +
-                    "encryption or a ride code check. Anyone nearby could then listen in, " +
-                    "and the call screen shows a warning for as long as it lasts.",
+                title = stringResource(R.string.set_allow_legacy),
+                subtitle = stringResource(R.string.set_allow_legacy_sub),
                 onChange = { v -> onChange { it.copy(allowLegacyBuddy = v) } },
             )
         }
 
-        SectionCard(title = "Keeping the call alive") {
-            SecondaryButton("Background and battery steps", onOem)
+        SectionCard(title = stringResource(R.string.set_keep_alive)) {
+            SecondaryButton(stringResource(R.string.set_keep_alive_sub), onOem)
         }
 
-        SectionCard(title = "Intercom hardware") {
-            SecondaryButton("HFP intercom bridge (C30 / universal)", onHfp)
+        SectionCard(title = stringResource(R.string.set_hardware)) {
+            SecondaryButton(stringResource(R.string.set_hfp_bridge), onHfp)
+        }
+
+        SectionCard(title = stringResource(R.string.set_run_setup)) {
+            Text(
+                stringResource(R.string.set_run_setup_sub),
+                style = MaterialTheme.typography.bodyMedium,
+                color = IntercomColors.dim,
+            )
+            SecondaryButton(stringResource(R.string.set_run_setup), onRunSetup)
+        }
+
+        SectionCard(title = stringResource(R.string.set_diagnostics)) {
+            Text(
+                stringResource(R.string.set_diagnostics_sub),
+                style = MaterialTheme.typography.bodyMedium,
+                color = IntercomColors.dim,
+            )
+            SecondaryButton(
+                text = stringResource(if (shareLogBusy) R.string.set_share_log_busy else R.string.set_share_log),
+                onClick = onShareLog,
+                enabled = !shareLogBusy,
+            )
         }
     }
 }
@@ -554,13 +566,15 @@ private fun ChoiceRow(
     Row(
         Modifier
             .fillMaxWidth()
-            .selectable(selected = selected, enabled = enabled, onClick = onClick)
+            .heightIn(min = Comfort.MIN_TOUCH_DP.dp)
+            .selectable(selected = selected, enabled = enabled, role = Role.RadioButton, onClick = onClick)
             .padding(vertical = 4.dp),
         verticalAlignment = Alignment.Top,
     ) {
         RadioButton(
             selected = selected,
-            onClick = onClick,
+            // The row carries the click, so a screen reader announces one radio button, not two.
+            onClick = null,
             enabled = enabled,
             colors = RadioButtonDefaults.colors(
                 selectedColor = Brand.Accent,
@@ -593,7 +607,10 @@ private fun ToggleRow(
     onChange: (Boolean) -> Unit,
 ) {
     Row(
-        Modifier.fillMaxWidth(),
+        Modifier
+            .fillMaxWidth()
+            .heightIn(min = Comfort.MIN_TOUCH_DP.dp)
+            .toggleable(value = checked, role = Role.Switch, onValueChange = onChange),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.Top,
     ) {
@@ -607,7 +624,8 @@ private fun ToggleRow(
         }
         Switch(
             checked = checked,
-            onCheckedChange = onChange,
+            // The row above carries the toggle, so the whole line is one target for TalkBack.
+            onCheckedChange = null,
             colors = SwitchDefaults.colors(
                 checkedThumbColor = Brand.TextPrimary,
                 checkedTrackColor = Brand.Accent,
@@ -617,33 +635,4 @@ private fun ToggleRow(
             ),
         )
     }
-}
-
-private fun micTitle(src: MicSource): String = when (src) {
-    MicSource.Wired -> "Wired boom mic (best)"
-    MicSource.Phone -> "Phone microphone"
-    MicSource.LeAudio -> "LE Audio headset"
-    MicSource.HeadsetHfp -> "Headset mic (music quality drops)"
-}
-
-private fun micSubtitle(src: MicSource): String = when (src) {
-    MicSource.Wired -> "USB-C or 3.5 mm, mounted in the helmet. Best wind rejection, " +
-        "and the headset stays on A2DP so music stays stereo."
-    MicSource.Phone -> "Keeps the headset on A2DP. Usable at town speeds; wind beats it " +
-        "on the highway."
-    MicSource.LeAudio -> "Android 13+ with an LE Audio headset: mic and high-quality " +
-        "output at once. Few helmet headsets support it yet."
-    MicSource.HeadsetHfp -> "Convenient, but Android suspends A2DP while the headset mic " +
-        "is open, so music turns mono and muffled for the whole call."
-}
-
-private fun noiseSubtitle(ns: NoiseSuppression): String = when (ns) {
-    NoiseSuppression.Off -> "Only the wind low-cut and the noise gate. Most natural voice, " +
-        "but your buddy hears the bike."
-    NoiseSuppression.Light -> "Town riding. Takes out the steady hiss and rumble without " +
-        "touching the voice."
-    NoiseSuppression.Medium -> "Mixed roads. Stronger than Light, still natural; a good " +
-        "default when speeds vary."
-    NoiseSuppression.Strong -> "Highway. Removes engine and wind roar; the voice sounds " +
-        "slightly processed in exchange."
 }

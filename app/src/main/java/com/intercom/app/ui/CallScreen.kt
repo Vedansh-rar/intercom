@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -47,6 +48,8 @@ import com.intercom.app.audio.NoiseSuppression
 import com.intercom.app.floor.FloorState
 import com.intercom.app.location.DistanceUnit
 import com.intercom.app.util.TalkMode
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
 
 /**
  * The screen the rider glances at from the saddle.
@@ -98,14 +101,14 @@ fun CallScreen(
             trailing = {
                 Box(
                     Modifier
-                        .size(42.dp)
+                        .size(Comfort.MIN_TOUCH_DP.dp)
                         .clip(CircleShape)
                         .background(Brand.Surface)
-                        .clickable(onClick = onSettings),
+                        .clickable(role = Role.Button, onClick = onSettings),
                     contentAlignment = Alignment.Center,
                 ) {
                     Icon(
-                        Icons.Filled.Settings, contentDescription = "Settings",
+                        Icons.Filled.Settings, contentDescription = stringResource(R.string.common_settings),
                         tint = Brand.TextPrimary, modifier = Modifier.size(21.dp),
                     )
                 }
@@ -116,10 +119,10 @@ fun CallScreen(
         Box(Modifier.padding(horizontal = 16.dp)) {
             StatusPill(
                 headline = when {
-                    status.group -> if (status.peers.isEmpty()) "Group ride" else "Group ride · ${status.peers.size + 1} riders"
-                    status.isConnected -> status.peerName?.let { "Linked with $it" } ?: "Linked"
-                    status.isHost -> "Hosting"
-                    else -> "Joining"
+                    status.group -> if (status.peers.isEmpty()) stringResource(R.string.call_group_ride) else stringResource(R.string.call_group_ride_n, status.peers.size + 1)
+                    status.isConnected -> status.peerName?.let { stringResource(R.string.call_linked_with, it) } ?: stringResource(R.string.call_linked)
+                    status.isHost -> stringResource(R.string.call_hosting)
+                    else -> stringResource(R.string.call_joining)
                 },
                 detail = status.statusText,
                 dotColor = if (status.isConnected) Brand.Talking else Brand.Buddy,
@@ -143,19 +146,23 @@ fun CallScreen(
                 DotStatus(
                     text = when {
                         !status.isConnected -> phaseLabel(status)
-                        status.floor == FloorState.Talking -> "You are talking"
-                        status.floor == FloorState.Muted ->
-                            "${status.peerName ?: if (status.group) "A rider" else "Buddy"} is talking"
-                        else -> "Channel clear"
+                        status.floor == FloorState.Talking -> stringResource(R.string.call_you_talking)
+                        status.floor == FloorState.Muted -> stringResource(
+                            R.string.call_peer_is_talking,
+                            status.peerName ?: stringResource(
+                                if (status.group) R.string.call_a_rider else R.string.call_buddy
+                            ),
+                        )
+                        else -> stringResource(R.string.call_channel_clear)
                     },
                     color = dialColor,
                     subtitle = when {
                         !status.isConnected ->
-                            if (status.isHost) "Your buddy joins from their phone"
-                            else "Reaching the other phone"
+                            if (status.isHost) stringResource(R.string.start_ready_host_detail)
+                            else stringResource(R.string.call_reaching)
                         status.floor == FloorState.Muted ->
-                            if (status.group) "Wait for them to finish before you speak" else "Your mic is muted until they stop"
-                        else -> "Speak to talk · pause to release"
+                            if (status.group) stringResource(R.string.call_wait_group) else stringResource(R.string.call_mic_muted_until)
+                        else -> stringResource(R.string.call_speak_hint)
                     },
                 )
             }
@@ -180,7 +187,7 @@ fun CallScreen(
                     Box(
                         Modifier
                             .fillMaxWidth()
-                            .height(92.dp)
+                            .heightIn(min = Comfort.buttonHeight(92.dp))
                             .clip(RoundedCornerShape(20.dp))
                             .let {
                                 if (status.pushToTalk) it.background(Brand.Talking)
@@ -200,7 +207,7 @@ fun CallScreen(
                         contentAlignment = Alignment.Center,
                     ) {
                         Text(
-                            if (status.pushToTalk) "TALKING" else "HOLD TO TALK",
+                            if (status.pushToTalk) stringResource(R.string.call_talking_caps) else stringResource(R.string.call_hold_to_talk),
                             fontSize = 21.sp,
                             fontWeight = FontWeight.Bold,
                             letterSpacing = 1.5.sp,
@@ -209,8 +216,7 @@ fun CallScreen(
                     }
                     Spacer(Modifier.height(8.dp))
                     Text(
-                        "Push-to-talk mode \u2014 the voice detector will not open the channel " +
-                            "on its own.",
+                        stringResource(R.string.call_ptt_mode),
                         fontSize = 12.sp, color = Brand.TextDim, textAlign = TextAlign.Center,
                         modifier = Modifier.fillMaxWidth(),
                     )
@@ -224,7 +230,7 @@ fun CallScreen(
                     Box(
                         Modifier
                             .fillMaxWidth()
-                            .height(60.dp)
+                            .heightIn(min = Comfort.buttonHeight(60.dp))
                             .clip(RoundedCornerShape(16.dp))
                             .background(
                                 if (status.pushToTalk) Brand.Talking else Brand.SurfaceElevated
@@ -242,7 +248,7 @@ fun CallScreen(
                         contentAlignment = Alignment.Center,
                     ) {
                         Text(
-                            if (status.pushToTalk) "TALKING" else "Hold to cut in",
+                            if (status.pushToTalk) stringResource(R.string.call_talking_caps) else stringResource(R.string.call_hold_cut_in),
                             fontSize = 15.sp,
                             fontWeight = FontWeight.SemiBold,
                             color = if (status.pushToTalk) Color(0xFF13240F) else Brand.TextDim,
@@ -250,7 +256,7 @@ fun CallScreen(
                     }
                     Spacer(Modifier.height(8.dp))
                     Text(
-                        "Open call \u2014 just speak. Hold only to override the detector.",
+                        stringResource(R.string.call_open_mode),
                         fontSize = 12.sp, color = Brand.TextDim, textAlign = TextAlign.Center,
                         modifier = Modifier.fillMaxWidth(),
                     )
@@ -270,7 +276,7 @@ fun CallScreen(
             BrandCard(Modifier.fillMaxWidth()) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        "YOUR MIC",
+                        stringResource(R.string.call_your_mic),
                         fontSize = 11.sp, letterSpacing = 1.6.sp,
                         fontWeight = FontWeight.SemiBold, color = Brand.TextDim,
                     )
@@ -283,8 +289,8 @@ fun CallScreen(
                 }
                 Text(
                     if (status.floor == FloorState.Muted)
-                        "Still listening, but nothing is being sent"
-                    else "Speak normally; the detector opens the channel for you",
+                        stringResource(R.string.call_listening_only)
+                    else stringResource(R.string.call_speak_normally),
                     fontSize = 12.sp, color = Brand.TextDim,
                 )
             }
@@ -293,7 +299,7 @@ fun CallScreen(
         if (status.group) {
             Spacer(Modifier.height(14.dp))
             Box(Modifier.padding(horizontal = 16.dp)) {
-                PeerList(status.peers, onPeerMute, distanceUnit, groupGpsNote(status))
+                PeerList(status.peers, onPeerMute, distanceUnit, groupGpsNote(status, rememberDistanceWords()))
             }
         }
 
@@ -305,21 +311,21 @@ fun CallScreen(
                 listOf(
                     BarItem(
                         icon = musicIcon,
-                        title = "Music",
-                        subtitle = if (status.focusHeld) "Ducked" else "Keep playing",
+                        title = stringResource(R.string.common_music),
+                        subtitle = if (status.focusHeld) stringResource(R.string.call_music_ducked) else stringResource(R.string.call_music_keep),
                         onClick = onSettings,
                     ),
                     BarItem(
                         icon = MicIcons.Mic,
-                        title = "Intercom",
-                        subtitle = if (status.isConnected) "Rider to rider" else "Offline",
+                        title = stringResource(R.string.common_intercom),
+                        subtitle = if (status.isConnected) stringResource(R.string.call_rider_to_rider) else stringResource(R.string.call_offline),
                         active = status.isConnected,
                         onClick = {},
                     ),
                     BarItem(
                         icon = audioIcon,
-                        title = "Noise",
-                        subtitle = noiseSuppression.label,
+                        title = stringResource(R.string.common_noise),
+                        subtitle = stringResource(noiseSuppression.labelRes()),
                         active = noiseSuppression != NoiseSuppression.Off,
                         onClick = onCycleNoise,
                     ),
@@ -333,25 +339,25 @@ fun CallScreen(
         Box(Modifier.padding(horizontal = 16.dp)) {
             BrandCard(Modifier.fillMaxWidth()) {
                 Text(
-                    "LINK",
+                    stringResource(R.string.call_link),
                     fontSize = 11.sp, letterSpacing = 1.6.sp,
                     fontWeight = FontWeight.SemiBold, color = Brand.TextDim,
                 )
-                KeyValueRow("State", status.link.name)
+                KeyValueRow(stringResource(R.string.call_state), stringResource(status.link.labelRes()))
                 if (!status.group) {
                     KeyValueRow(
-                        "Round trip",
-                        if (status.rttMs < 0) "measuring" else "${status.rttMs} ms",
+                        stringResource(R.string.call_round_trip),
+                        if (status.rttMs < 0) stringResource(R.string.call_measuring) else stringResource(R.string.call_rtt_ms, status.rttMs),
                     )
                     KeyValueRow(
-                        "Frame loss",
+                        stringResource(R.string.call_frame_loss),
                         "%.1f %%".format(status.lossPercent),
                         valueColor = if (status.lossPercent > 5) Brand.Buddy else Brand.TextPrimary,
                     )
-                    KeyValueRow("Jitter buffer", "${status.jitterDepth} frames")
+                    KeyValueRow(stringResource(R.string.call_jitter), stringResource(R.string.call_jitter_frames, status.jitterDepth))
                 }
-                KeyValueRow("Role", if (status.isHost) "Host" else "Joined")
-                KeyValueRow("Call time", formatElapsed(status.elapsedSeconds))
+                KeyValueRow(stringResource(R.string.call_role), if (status.isHost) stringResource(R.string.call_role_host) else stringResource(R.string.call_role_joined))
+                KeyValueRow(stringResource(R.string.call_time), formatElapsed(status.elapsedSeconds))
             }
         }
 
@@ -359,7 +365,7 @@ fun CallScreen(
             Spacer(Modifier.height(14.dp))
             Box(Modifier.padding(horizontal = 16.dp)) {
                 BrandCard(Modifier.fillMaxWidth()) {
-                    Text("PROBLEM", fontSize = 11.sp, letterSpacing = 1.6.sp, color = Brand.Danger)
+                    Text(stringResource(R.string.call_problem), fontSize = 11.sp, letterSpacing = 1.6.sp, color = Brand.Danger)
                     Text(status.error, fontSize = 14.sp, color = Brand.Danger)
                 }
             }
@@ -373,9 +379,9 @@ fun CallScreen(
 
         Box(Modifier.padding(horizontal = 16.dp)) {
             Column {
-                SecondaryButton("End call", onEnd, color = Brand.Danger, height = 54.dp)
+                SecondaryButton(stringResource(R.string.call_end), onEnd, color = Brand.Danger, height = 54.dp)
                 Spacer(Modifier.height(10.dp))
-                SecondaryButton("Back", onBack, color = Brand.TextDim, height = 46.dp)
+                SecondaryButton(stringResource(R.string.common_back), onBack, color = Brand.TextDim, height = 46.dp)
             }
         }
     }
@@ -391,25 +397,25 @@ private fun SecurityNotice(status: CallStatus) {
     if (!status.isConnected) return
     when (status.security) {
         ChannelSecurity.Encrypted -> Box(Modifier.padding(start = 20.dp, top = 8.dp, end = 16.dp)) {
+            val encryptedDescription = stringResource(R.string.call_is_encrypted)
             Text(
-                "Encrypted with your ride code",
+                stringResource(R.string.call_encrypted),
                 fontSize = 13.sp, color = Brand.Talking,
-                modifier = Modifier.semantics { contentDescription = "Call is encrypted" },
+                modifier = Modifier.semantics { contentDescription = encryptedDescription },
             )
         }
         ChannelSecurity.Authenticating -> Box(Modifier.padding(start = 20.dp, top = 8.dp, end = 16.dp)) {
-            Text("Checking the ride code...", fontSize = 13.sp, color = Brand.Buddy)
+            Text(stringResource(R.string.call_checking_code), fontSize = 13.sp, color = Brand.Buddy)
         }
         ChannelSecurity.Unencrypted -> Box(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
             BrandCard(Modifier.fillMaxWidth()) {
                 Text(
-                    "NOT ENCRYPTED",
+                    stringResource(R.string.call_not_encrypted),
                     fontSize = 11.sp, letterSpacing = 1.6.sp,
                     fontWeight = FontWeight.Bold, color = Brand.Danger,
                 )
                 Text(
-                    "Your buddy's app cannot encrypt, and you allowed that in Settings. " +
-                        "Anyone nearby with the right equipment can listen to this call.",
+                    stringResource(R.string.call_not_encrypted_detail),
                     fontSize = 14.sp, color = Brand.Danger, lineHeight = 19.sp,
                     modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
                 )
@@ -419,14 +425,15 @@ private fun SecurityNotice(status: CallStatus) {
     }
 }
 
+@Composable
 private fun phaseLabel(s: CallStatus): String = when (s.phase) {
-    CallPhase.Idle -> "Not started"
-    CallPhase.Starting -> "Starting"
-    CallPhase.Connecting -> if (s.isHost) "Waiting for buddy" else "Connecting"
-    CallPhase.Active -> "Connected"
-    CallPhase.Reconnecting -> "Reconnecting"
-    CallPhase.Ended -> "Call ended"
-    CallPhase.Error -> "Error"
+    CallPhase.Idle -> stringResource(R.string.phase_idle)
+    CallPhase.Starting -> stringResource(R.string.phase_starting)
+    CallPhase.Connecting -> if (s.isHost) stringResource(R.string.phase_waiting_buddy) else stringResource(R.string.phase_connecting)
+    CallPhase.Active -> stringResource(R.string.phase_connected)
+    CallPhase.Reconnecting -> stringResource(R.string.phase_reconnecting)
+    CallPhase.Ended -> stringResource(R.string.phase_ended)
+    CallPhase.Error -> stringResource(R.string.phase_error)
 }
 
 private fun formatElapsed(seconds: Long): String {

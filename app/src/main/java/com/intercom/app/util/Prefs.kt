@@ -103,6 +103,12 @@ data class Settings(
     val linkTones: Boolean = true,
     /** How the last call started, for "Reconnect": [LastRole.Host] or [LastRole.Client]. */
     val lastRole: LastRole = LastRole.None,
+    /** The language of the app. [AppLanguage.System] follows the phone. */
+    val language: AppLanguage = AppLanguage.System,
+    /** Brighter text and borders, for glare. */
+    val highContrast: Boolean = false,
+    /** Larger buttons with more space between them, for riding gloves. */
+    val largeButtons: Boolean = false,
 )
 
 /** The side of the last two-rider call, remembered so the Start screen can offer to redo it. */
@@ -112,7 +118,7 @@ enum class LastRole { None, Host, Client }
 class Prefs(context: Context) {
 
     private val sp: SharedPreferences =
-        context.getSharedPreferences("rider_intercom", Context.MODE_PRIVATE)
+        context.getSharedPreferences(FILE, Context.MODE_PRIVATE)
 
     /**
      * The ride code lives in its own file so it can be excluded from Android's cloud and
@@ -170,6 +176,9 @@ class Prefs(context: Context) {
         duckWhenITalk = sp.getBoolean(K_DUCK_OWN, false),
         linkTones = sp.getBoolean(K_LINK_TONES, true),
         lastRole = enumOf(sp.getString(K_LAST_ROLE, null), LastRole.None),
+        language = AppLanguage.parse(sp.getString(K_LANGUAGE, null)),
+        highContrast = sp.getBoolean(K_HIGH_CONTRAST, false),
+        largeButtons = sp.getBoolean(K_LARGE_BUTTONS, false),
     )
 
     private fun buttonOf(key: String, fallback: ButtonAction): ButtonAction =
@@ -211,6 +220,9 @@ class Prefs(context: Context) {
             putBoolean(K_DUCK_OWN, next.duckWhenITalk)
             putBoolean(K_LINK_TONES, next.linkTones)
             putString(K_LAST_ROLE, next.lastRole.name)
+            putString(K_LANGUAGE, next.language.name)
+            putBoolean(K_HIGH_CONTRAST, next.highContrast)
+            putBoolean(K_LARGE_BUTTONS, next.largeButtons)
         }.apply()
         secrets.edit().putString(K_RIDE_CODE, next.rideCode).apply()
         _settings.value = next
@@ -221,6 +233,11 @@ class Prefs(context: Context) {
         get() = sp.getBoolean(K_OEM_SHOWN, false)
         set(v) { sp.edit().putBoolean(K_OEM_SHOWN, v).apply() }
 
+    /** Set once the first-run walkthrough has been finished or skipped. */
+    var onboardingDone: Boolean
+        get() = sp.getBoolean(K_ONBOARDED, false)
+        set(v) { sp.edit().putBoolean(K_ONBOARDED, v).apply() }
+
     private fun buttonKey(input: ButtonInput): String = when (input) {
         ButtonInput.Single -> K_BTN_SINGLE
         ButtonInput.Double -> K_BTN_DOUBLE
@@ -230,8 +247,17 @@ class Prefs(context: Context) {
         ButtonInput.VolumeDown -> K_BTN_VOL_DOWN
     }
 
-    private companion object {
-        const val K_BTN_SINGLE = "btn_single"
+    companion object {
+        /** The stored language name, read without building a [Prefs] (for attachBaseContext). */
+        fun rawLanguage(context: Context): String? =
+            context.getSharedPreferences(FILE, Context.MODE_PRIVATE).getString(K_LANGUAGE, null)
+
+        private const val FILE = "rider_intercom"
+        private const val K_LANGUAGE = "language"
+        private const val K_HIGH_CONTRAST = "high_contrast"
+        private const val K_LARGE_BUTTONS = "large_buttons"
+        private const val K_ONBOARDED = "onboarded"
+        private const val K_BTN_SINGLE = "btn_single"
         const val K_BTN_DOUBLE = "btn_double"
         const val K_BTN_TRIPLE = "btn_triple"
         const val K_BTN_LONG = "btn_long"

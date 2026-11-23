@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -53,6 +54,8 @@ import com.intercom.app.audio.NoiseSuppression
 import com.intercom.app.util.LastRole
 import com.intercom.app.util.OemDetector
 import com.intercom.app.util.Settings as RiderSettings
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
 
 /**
  * The screen the ride starts from.
@@ -153,15 +156,15 @@ private fun StartScreenContent(
             trailing = {
                 Box(
                     Modifier
-                        .size(42.dp)
+                        .size(Comfort.MIN_TOUCH_DP.dp)
                         .clip(CircleShape)
                         .background(Brand.Surface)
-                        .clickable(onClick = onSettings),
+                        .clickable(role = Role.Button, onClick = onSettings),
                     contentAlignment = Alignment.Center,
                 ) {
                     Icon(
                         Icons.Filled.Settings,
-                        contentDescription = "Settings",
+                        contentDescription = stringResource(R.string.common_settings),
                         tint = Brand.TextPrimary,
                         modifier = Modifier.size(21.dp),
                     )
@@ -188,8 +191,8 @@ private fun StartScreenContent(
                         WaveMark(Modifier.size(22.dp, 20.dp))
                         Spacer(Modifier.width(10.dp))
                         Text(
-                            if (joinable.size == 1) "A RIDER IS HOSTING"
-                            else "${joinable.size} RIDERS ARE HOSTING",
+                            if (joinable.size == 1) stringResource(R.string.start_one_hosting)
+                            else stringResource(R.string.start_many_hosting, joinable.size),
                             fontSize = 11.sp, letterSpacing = 1.6.sp,
                             fontWeight = FontWeight.SemiBold,
                             color = LocalAccents.current.base,
@@ -209,18 +212,18 @@ private fun StartScreenContent(
                                 )
                                 Text(
                                     if (bonded != null) host.proximity
-                                    else "${host.proximity} \u00b7 pair in Bluetooth settings first",
+                                    else stringResource(R.string.start_host_needs_pairing, host.proximity),
                                     fontSize = 12.sp, color = Brand.TextDim,
                                 )
                             }
                             Spacer(Modifier.width(10.dp))
                             if (bonded != null) {
                                 Box(Modifier.width(96.dp)) {
-                                    PrimaryButton("Join", true, { onJoin(bonded) }, height = 42.dp)
+                                    PrimaryButton(stringResource(R.string.common_join), true, { onJoin(bonded) }, height = 42.dp)
                                 }
                             } else {
                                 Box(Modifier.width(96.dp)) {
-                                    SecondaryButton("Pair", onOpenBluetoothSettings, height = 42.dp)
+                                    SecondaryButton(stringResource(R.string.start_pair), onOpenBluetoothSettings, height = 42.dp)
                                 }
                             }
                         }
@@ -236,8 +239,8 @@ private fun StartScreenContent(
         ) {
             ActionTile(
                 icon = Icons.Filled.PlayArrow,
-                title = "Host Ride",
-                subtitle = if (group) "Start the group" else "Wait for your buddy",
+                title = stringResource(R.string.start_host_ride),
+                subtitle = if (group) stringResource(R.string.start_host_sub_group) else stringResource(R.string.start_host_sub_buddy),
                 selected = hostMode,
                 enabled = ready,
                 onClick = { onHostMode(true); showBuddies = false },
@@ -245,8 +248,8 @@ private fun StartScreenContent(
             )
             ActionTile(
                 icon = Icons.Filled.Person,
-                title = "Join Rider",
-                subtitle = if (group) "Join the group" else "Connect to a paired phone",
+                title = stringResource(R.string.start_join_rider),
+                subtitle = if (group) stringResource(R.string.start_join_sub_group) else stringResource(R.string.start_join_sub_buddy),
                 selected = !hostMode,
                 enabled = ready,
                 onClick = { onHostMode(false); showBuddies = !group },
@@ -259,19 +262,19 @@ private fun StartScreenContent(
         // ---- state --------------------------------------------------------------
         val (headline, detail, dot) = when {
             !permissionsGranted -> Triple(
-                "Permissions needed", "Microphone, Bluetooth and notifications", Brand.Danger,
+                stringResource(R.string.start_perm_needed), stringResource(R.string.start_perm_needed_detail), Brand.Danger,
             )
-            !bluetoothOn -> Triple("Bluetooth is off", "Turn it on to reach the other phone", Brand.Danger)
-            !hasCode -> Triple("Set a ride code", "Both phones need the same code", Brand.Buddy)
-            group && hostMode -> Triple("Ready to lead the group", "Riders join with the ride code", Brand.Talking)
-            group -> Triple("Ready to join the group", "Use the host's ride code", Brand.Talking)
-            hostMode -> Triple("Ready to host", "Your buddy joins from their phone", Brand.Talking)
+            !bluetoothOn -> Triple(stringResource(R.string.start_bt_off), stringResource(R.string.start_bt_off_detail), Brand.Danger)
+            !hasCode -> Triple(stringResource(R.string.start_set_code), stringResource(R.string.start_set_code_detail), Brand.Buddy)
+            group && hostMode -> Triple(stringResource(R.string.start_ready_lead), stringResource(R.string.start_ready_lead_detail), Brand.Talking)
+            group -> Triple(stringResource(R.string.start_ready_join_group), stringResource(R.string.start_ready_join_group_detail), Brand.Talking)
+            hostMode -> Triple(stringResource(R.string.start_ready_host), stringResource(R.string.start_ready_host_detail), Brand.Talking)
             selected != null -> Triple(
-                "Ready to join",
+                stringResource(R.string.start_ready_join),
                 runCatching { selected?.name }.getOrNull() ?: selected?.address ?: "",
                 Brand.Talking,
             )
-            else -> Triple("No buddy chosen", "Pick a paired phone below", Brand.Buddy)
+            else -> Triple(stringResource(R.string.start_no_buddy), stringResource(R.string.start_no_buddy_detail), Brand.Buddy)
         }
         Box(Modifier.padding(horizontal = 16.dp)) {
             StatusPill(headline = headline, detail = detail, dotColor = dot)
@@ -283,11 +286,10 @@ private fun StartScreenContent(
             Box(Modifier.padding(horizontal = 16.dp)) {
                 BrandCard(Modifier.fillMaxWidth()) {
                     Text(
-                        "The call needs the microphone, Bluetooth and the notification that " +
-                            "keeps it alive with the screen off.",
+                        stringResource(R.string.start_perm_explain),
                         fontSize = 14.sp, color = Brand.TextDim, lineHeight = 19.sp,
                     )
-                    PrimaryButton("Grant permissions", true, onRequestPermissions)
+                    PrimaryButton(stringResource(R.string.start_grant_permissions), true, onRequestPermissions)
                 }
             }
         } else if (!bluetoothOn) {
@@ -295,10 +297,10 @@ private fun StartScreenContent(
             Box(Modifier.padding(horizontal = 16.dp)) {
                 BrandCard(Modifier.fillMaxWidth()) {
                     Text(
-                        "Turn Bluetooth on to reach the other phone.",
+                        stringResource(R.string.start_bt_on_explain),
                         fontSize = 14.sp, color = Brand.TextDim,
                     )
-                    PrimaryButton("Turn on Bluetooth", true, onEnableBluetooth)
+                    PrimaryButton(stringResource(R.string.start_turn_on_bt), true, onEnableBluetooth)
                 }
             }
         }
@@ -316,17 +318,17 @@ private fun StartScreenContent(
             Box(Modifier.padding(horizontal = 16.dp)) {
                 BrandCard(Modifier.fillMaxWidth()) {
                     Text(
-                        "LAST RIDE",
+                        stringResource(R.string.start_last_ride),
                         fontSize = 11.sp, letterSpacing = 1.6.sp,
                         fontWeight = FontWeight.SemiBold, color = Brand.TextDim,
                     )
                     Text(
-                        if (settings.lastRole == LastRole.Host) "You hosted, $lastBuddy joined"
-                        else "You joined $lastBuddy",
+                        if (settings.lastRole == LastRole.Host) stringResource(R.string.start_last_hosted, lastBuddy)
+                        else stringResource(R.string.start_last_joined, lastBuddy),
                         fontSize = 15.sp, color = Brand.TextPrimary,
                     )
                     PrimaryButton(
-                        text = "Reconnect to $lastBuddy",
+                        text = stringResource(R.string.start_reconnect, lastBuddy),
                         enabled = canReconnect,
                         onClick = {
                             if (settings.lastRole == LastRole.Host) onHost()
@@ -354,9 +356,9 @@ private fun StartScreenContent(
                 }
                 Spacer(Modifier.height(14.dp))
                 DotStatus(
-                    text = if (canGo) "Intercom Ready" else "Not Ready",
+                    text = if (canGo) stringResource(R.string.start_ready) else stringResource(R.string.start_not_ready),
                     color = if (canGo) Brand.Talking else Brand.Idle,
-                    subtitle = if (canGo) "Tap to start · speak to talk" else detail,
+                    subtitle = if (canGo) stringResource(R.string.start_ready_hint) else detail,
                 )
             }
         }
@@ -366,12 +368,12 @@ private fun StartScreenContent(
         // ---- start button -------------------------------------------------------
         Box(Modifier.padding(horizontal = 16.dp)) {
             PrimaryButton(
-                text = if (group) { if (hostMode) "Start group ride" else "Join group ride" }
-                else if (hostMode) "Start hosting" else {
+                text = if (group) { if (hostMode) stringResource(R.string.start_group_start) else stringResource(R.string.start_group_join) }
+                else if (hostMode) stringResource(R.string.start_start_hosting) else {
                     val label = selected?.let { d ->
                         runCatching { d.name }.getOrNull() ?: d.address
                     }
-                    if (label != null) "Join  ·  $label" else "Join"
+                    if (label != null) stringResource(R.string.start_join_with, label) else stringResource(R.string.common_join)
                 },
                 enabled = canGo,
                 onClick = go,
@@ -384,23 +386,23 @@ private fun StartScreenContent(
         if (!group) Box(Modifier.padding(horizontal = 16.dp)) {
             BrandCard(Modifier.fillMaxWidth()) {
                 Row(
-                    Modifier.fillMaxWidth().clickable { showBuddies = !showBuddies },
+                    Modifier.fillMaxWidth().heightIn(min = Comfort.MIN_TOUCH_DP.dp).clickable { showBuddies = !showBuddies },
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Column(Modifier.weight(1f)) {
                         Text(
-                            "PAIRED PHONES",
+                            stringResource(R.string.start_paired_phones),
                             fontSize = 11.sp, letterSpacing = 1.6.sp,
                             fontWeight = FontWeight.SemiBold, color = Brand.TextDim,
                         )
                         Text(
-                            if (bondedDevices.isEmpty()) "None yet"
-                            else "${bondedDevices.size} available",
+                            if (bondedDevices.isEmpty()) stringResource(R.string.start_none_yet)
+                            else stringResource(R.string.start_n_available, bondedDevices.size),
                             fontSize = 15.sp, color = Brand.TextPrimary,
                         )
                     }
                     Text(
-                        if (showBuddies) "Hide" else "Show",
+                        if (showBuddies) stringResource(R.string.common_hide) else stringResource(R.string.common_show),
                         fontSize = 14.sp, fontWeight = FontWeight.SemiBold,
                         color = LocalAccents.current.base,
                     )
@@ -409,9 +411,8 @@ private fun StartScreenContent(
                 if (showBuddies) {
                     if (bondedDevices.isEmpty()) {
                         Text(
-                            if (!permissionsGranted) "Grant Bluetooth permission to see paired phones."
-                            else "Pair both phones in Android's Bluetooth settings first, then " +
-                                "come back.",
+                            if (!permissionsGranted) stringResource(R.string.start_grant_bt_to_list)
+                            else stringResource(R.string.start_pair_first),
                             fontSize = 14.sp, color = Brand.TextDim, lineHeight = 19.sp,
                         )
                     } else {
@@ -427,6 +428,7 @@ private fun StartScreenContent(
                                         selected = device
                                         onHostMode(false)
                                     }
+                                    .heightIn(min = Comfort.MIN_TOUCH_DP.dp)
                                     .padding(horizontal = 12.dp, vertical = 10.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
@@ -440,7 +442,7 @@ private fun StartScreenContent(
                                 }
                                 if (isSel) {
                                     Icon(
-                                        Icons.Filled.Check, contentDescription = "Selected",
+                                        Icons.Filled.Check, contentDescription = stringResource(R.string.start_selected),
                                         tint = LocalAccents.current.base, modifier = Modifier.size(20.dp),
                                     )
                                 }
@@ -448,8 +450,8 @@ private fun StartScreenContent(
                         }
                     }
                     SecondaryButton(
-                        text = if (bondedDevices.isEmpty()) "Open Bluetooth settings"
-                        else "Pair another phone",
+                        text = if (bondedDevices.isEmpty()) stringResource(R.string.start_open_bt_settings)
+                        else stringResource(R.string.start_pair_another),
                         onClick = onOpenBluetoothSettings,
                     )
                 }
@@ -462,7 +464,7 @@ private fun StartScreenContent(
         Box(Modifier.padding(horizontal = 16.dp)) {
             BrandCard(Modifier.fillMaxWidth()) {
                 Text(
-                    "YOUR NAME",
+                    stringResource(R.string.start_your_name),
                     fontSize = 11.sp, letterSpacing = 1.6.sp,
                     fontWeight = FontWeight.SemiBold, color = Brand.TextDim,
                 )
@@ -473,7 +475,7 @@ private fun StartScreenContent(
                         onRenameRider(name)
                     },
                     singleLine = true,
-                    placeholder = { Text("Shown on your buddy's screen", color = Brand.TextDim) },
+                    placeholder = { Text(stringResource(R.string.start_name_hint), color = Brand.TextDim) },
                     shape = RoundedCornerShape(14.dp),
                     colors = TextFieldDefaults.colors(
                         focusedContainerColor = Brand.SurfaceElevated,
@@ -508,22 +510,22 @@ private fun StartScreenContent(
                 listOf(
                     BarItem(
                         icon = musicIcon,
-                        title = "Music",
-                        subtitle = if (settings.takeAudioFocus) "Ducks while talking"
-                        else "Keeps playing",
+                        title = stringResource(R.string.common_music),
+                        subtitle = if (settings.takeAudioFocus) stringResource(R.string.start_music_ducks)
+                        else stringResource(R.string.common_keeps_playing),
                         onClick = onSettings,
                     ),
                     BarItem(
                         icon = MicIcons.Mic,
-                        title = "Intercom",
-                        subtitle = settings.talkMode.label,
+                        title = stringResource(R.string.common_intercom),
+                        subtitle = stringResource(settings.talkMode.labelRes()),
                         active = ready,
                         onClick = {},
                     ),
                     BarItem(
                         icon = audioIcon,
-                        title = "Noise",
-                        subtitle = settings.noiseSuppression.label,
+                        title = stringResource(R.string.common_noise),
+                        subtitle = stringResource(settings.noiseSuppression.labelRes()),
                         active = settings.noiseSuppression != NoiseSuppression.Off,
                         onClick = onSettings,
                     ),
@@ -543,26 +545,18 @@ private fun StartScreenContent(
                         )
                         Spacer(Modifier.width(10.dp))
                         Text(
-                            "BEFORE A LONG RIDE",
+                            stringResource(R.string.start_before_long_ride),
                             fontSize = 11.sp, letterSpacing = 1.6.sp,
                             fontWeight = FontWeight.SemiBold, color = Brand.TextDim,
                         )
                     }
                     Text(
-                        "This phone's battery manager can kill the call once the screen is " +
-                            "off. Two minutes in settings now saves a dead intercom later.",
+                        stringResource(R.string.start_oem_warning),
                         fontSize = 14.sp, color = Brand.TextDim, lineHeight = 19.sp,
                     )
-                    SecondaryButton("Keep the call alive", onOem, color = Brand.Buddy)
+                    SecondaryButton(stringResource(R.string.start_keep_alive), onOem, color = Brand.Buddy)
                 }
             }
         }
     }
-}
-
-private fun micLabel(src: MicSource): String = when (src) {
-    MicSource.Wired -> "Wired boom mic"
-    MicSource.Phone -> "Phone mic"
-    MicSource.LeAudio -> "LE Audio"
-    MicSource.HeadsetHfp -> "Headset (HFP)"
 }

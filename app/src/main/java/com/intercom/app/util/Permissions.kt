@@ -1,5 +1,7 @@
 package com.intercom.app.util
 
+import com.intercom.app.R
+import androidx.annotation.StringRes
 import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
@@ -99,15 +101,20 @@ object Permissions {
         ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) ==
             PackageManager.PERMISSION_GRANTED
 
-    fun label(permission: String): String = when (permission) {
-        Manifest.permission.RECORD_AUDIO -> "Microphone"
-        Manifest.permission.BLUETOOTH_CONNECT -> "Bluetooth connect"
-        Manifest.permission.BLUETOOTH_SCAN -> "Bluetooth scan"
-        Manifest.permission.BLUETOOTH_ADVERTISE -> "Bluetooth advertise (so buddies can find you)"
-        Manifest.permission.ACCESS_FINE_LOCATION -> "Location (needed for Bluetooth on this Android)"
-        Manifest.permission.ACCESS_COARSE_LOCATION -> "Approximate location (requested together with precise)"
-        Manifest.permission.POST_NOTIFICATIONS -> "Notifications"
-        Manifest.permission.NEARBY_WIFI_DEVICES -> "Nearby Wi-Fi (for the long-range link)"
-        else -> permission.substringAfterLast('.')
+    /** Resource for the rider-facing name of a permission, or null for one we do not explain. */
+    @StringRes
+    fun labelRes(permission: String): Int? = when (permission) {
+        Manifest.permission.RECORD_AUDIO -> R.string.perm_mic
+        Manifest.permission.BLUETOOTH_CONNECT -> R.string.perm_bt_connect
+        Manifest.permission.BLUETOOTH_SCAN -> R.string.perm_bt_scan
+        Manifest.permission.BLUETOOTH_ADVERTISE -> R.string.perm_bt_advertise
+        Manifest.permission.ACCESS_FINE_LOCATION -> R.string.perm_location
+        Manifest.permission.ACCESS_COARSE_LOCATION -> R.string.perm_coarse
+        Manifest.permission.POST_NOTIFICATIONS -> R.string.perm_notifications
+        Manifest.permission.NEARBY_WIFI_DEVICES -> R.string.perm_nearby_wifi
+        else -> null
     }
+
+    fun label(context: Context, permission: String): String =
+        labelRes(permission)?.let(context::getString) ?: permission.substringAfterLast('.')
 }
