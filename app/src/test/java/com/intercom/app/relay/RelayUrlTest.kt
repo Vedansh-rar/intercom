@@ -43,7 +43,9 @@ class RelayUrlTest {
         assertNull(RelayUrl.parse("wss://relay.example.com:99999"))
         assertNull(RelayUrl.parse("wss://relay .example.com"))
         assertNull(RelayUrl.parse("wss://.example.com"))
-        assertNull(RelayUrl.parse("wss://relay.example.com\n"))
+        assertNull(RelayUrl.parse("wss://relay\n.example.com"))
+        // Surrounding whitespace (a pasted address) is trimmed, not refused.
+        assertEquals("wss://relay.example.com", RelayUrl.parse("wss://relay.example.com\n"))
         assertNull(RelayUrl.parse("wss://" + "a".repeat(300)))
     }
 
