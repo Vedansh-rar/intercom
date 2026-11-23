@@ -4,7 +4,7 @@
 
 Most riders don't own a dedicated helmet intercom. And even a phone call won't help when you're riding through mountains, forests, or rural stretches with no reception. Wind noise and engine roar make shouting impossible. This app turns two Android phones into a direct rider-to-rider voice link over Bluetooth — no internet, no cell tower, no cloud service, no subscription. Just pair, tap, and talk.
 
-> **[Download APK](rider-intercom.apk)** — Android 10+ required. Install on both phones.
+> **[Download APK](../../releases/latest)** — Android 10+ required. Install on both phones. (APKs are published on the Releases page; see `RELEASING.md`.)
 
 ---
 

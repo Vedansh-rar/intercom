@@ -16,8 +16,9 @@ jobs:
           distribution: temurin
           java-version: 17
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+      # ubuntu-latest ships the Android SDK (ANDROID_HOME is set) and Gradle fetches the
+      # platform it needs, so no separate SDK setup step is required. The setup-android
+      # action failed here with "Failed to find package 'tools'".
 
       - uses: gradle/actions/setup-gradle@v4
 
