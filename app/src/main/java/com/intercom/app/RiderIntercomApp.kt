@@ -1,5 +1,8 @@
 package com.intercom.app
 
+import com.intercom.app.update.UpdateController
+import com.intercom.app.call.IntercomService
+import com.intercom.app.call.CallPhase
 import android.app.Application
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -10,6 +13,14 @@ class RiderIntercomApp : Application() {
 
     lateinit var prefs: Prefs
         private set
+
+    /** The opt-in update check; idle and silent until the rider asks. */
+    val updates: UpdateController by lazy {
+        UpdateController(this, prefs, callActive = {
+            val phase = IntercomService.instance.value?.controller?.status?.value?.phase
+            phase != null && phase !in listOf(CallPhase.Idle, CallPhase.Ended, CallPhase.Error)
+        })
+    }
 
     override fun onCreate() {
         super.onCreate()

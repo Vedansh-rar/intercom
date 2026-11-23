@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <!-- Only the redacted logs the rider chose to share, and the one verified update APK
+         handed to the system installer. Nothing else in the cache is reachable. -->
+    <cache-path name="logs" path="logs/" />
+    <cache-path name="updates" path="updates/" />
+</paths>

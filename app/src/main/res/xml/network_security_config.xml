@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The only HTTP the app ever does is the update check, and that is HTTPS to GitHub.
+     This refuses plain HTTP for any HTTP client in the process. (Voice between the phones
+     uses raw sockets, which this setting does not affect.) -->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false" />
+</network-security-config>

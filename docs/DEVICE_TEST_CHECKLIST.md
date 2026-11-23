@@ -456,3 +456,48 @@ before release; the English text is the source of truth.
 - [ ] Smoke-test a full call, group call and SOS after the Compose BOM, core-ktx,
       activity-compose and DataStore bumps; release build with R8 and resource shrinking
       still installs and runs (Hindi strings survive shrinking).
+
+## Phase 9: safe in-app updates
+
+Needs a real signed release on GitHub Releases for `Vedansh-rar/intercom`; none exists yet, so
+none of this has run end to end. Build two signed APKs with the same key, the second with a
+higher `versionCode` and a tag such as `v2.0.0`, and install the first.
+
+### Happy path
+- [ ] Settings > Updates says checks are manual or opt-in and names GitHub as the only host.
+- [ ] Check for updates with no release published: "No release has been published yet."
+- [ ] With a release: it offers the right version and size; the notes snippet reads sensibly.
+- [ ] Download shows progress and finishes; Install opens the system installer.
+- [ ] First time: Android's "install unknown apps" screen opens for this app; after allowing it
+      and returning, Install goes to the installer; the update installs over the old build and
+      keeps settings, ride code and onboarding state.
+- [ ] Hindi: every message on this screen is in Hindi and fits at largest font size.
+
+### Refusals (each should delete the file and say why in words)
+- [ ] Release APK signed with a different key: refused as "different key" before the installer.
+- [ ] Edit the `.sha256` asset to a wrong hash: "does not match", nothing installed.
+- [ ] Release with no `.sha256` and no hash in the notes: not offered, says no checksum.
+- [ ] Two different hashes in the notes: not offered.
+- [ ] Tag older than or equal to the installed version, and a tag such as `nightly`: never offered.
+- [ ] `v2.0.0-rc.1` marked pre-release is not returned by "latest"; a full `v1.9.0` is not offered over 2.0.0.
+- [ ] Same `versionCode` as installed: refused as not newer.
+- [ ] APK attached under a different package name: refused.
+
+### Download behaviour
+- [ ] Cancel mid-download: returns to "available", `cache/updates` holds no `.part` file.
+- [ ] Airplane mode mid-download: clear offline message, no partial file kept, retry works.
+- [ ] Low storage: "not enough space", no partial file.
+- [ ] A large APK downloads without memory growth (watch Android Studio profiler).
+- [ ] Rotate the phone and switch language during a download: the state survives.
+- [ ] Rate-limited (repeat checks quickly, or use a tethered network that is rate limited): friendly message.
+
+### Calls and opt-in
+- [ ] During a call, Download and Install are disabled with the explanation; the call is unaffected.
+- [ ] Fresh install: no network traffic at launch (check with a packet capture or `adb shell dumpsys netstats`).
+- [ ] Daily check switched on: one check per day at app launch, never during a call, never downloads.
+- [ ] Switch it off: no more checks. Clock set back: it checks again (counts as due), then waits a day.
+- [ ] Cleartext traffic is blocked (network security config): a check through a proxy serving plain http fails.
+
+### Known gaps to confirm
+- [ ] Signing-key rotation with a lineage is not handled: the app refuses such an update. Decide if that is acceptable.
+- [ ] Sideloaded updates are not shown in Play Protect prompts consistently across brands; note the prompts on Xiaomi, Samsung and Oppo.

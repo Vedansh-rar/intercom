@@ -107,6 +107,8 @@ data class Settings(
     val language: AppLanguage = AppLanguage.System,
     /** Brighter text and borders, for glare. */
     val highContrast: Boolean = false,
+    /** Opt-in: look for a newer release once a day when the app opens. Off by default. */
+    val autoUpdateCheck: Boolean = false,
     /** Larger buttons with more space between them, for riding gloves. */
     val largeButtons: Boolean = false,
 )
@@ -178,6 +180,7 @@ class Prefs(context: Context) {
         lastRole = enumOf(sp.getString(K_LAST_ROLE, null), LastRole.None),
         language = AppLanguage.parse(sp.getString(K_LANGUAGE, null)),
         highContrast = sp.getBoolean(K_HIGH_CONTRAST, false),
+        autoUpdateCheck = sp.getBoolean(K_AUTO_UPDATE, false),
         largeButtons = sp.getBoolean(K_LARGE_BUTTONS, false),
     )
 
@@ -222,6 +225,7 @@ class Prefs(context: Context) {
             putString(K_LAST_ROLE, next.lastRole.name)
             putString(K_LANGUAGE, next.language.name)
             putBoolean(K_HIGH_CONTRAST, next.highContrast)
+            putBoolean(K_AUTO_UPDATE, next.autoUpdateCheck)
             putBoolean(K_LARGE_BUTTONS, next.largeButtons)
         }.apply()
         secrets.edit().putString(K_RIDE_CODE, next.rideCode).apply()
@@ -237,6 +241,11 @@ class Prefs(context: Context) {
     var onboardingDone: Boolean
         get() = sp.getBoolean(K_ONBOARDED, false)
         set(v) { sp.edit().putBoolean(K_ONBOARDED, v).apply() }
+
+    /** When the update check last ran (0 = never); the daily opt-in check uses it. */
+    var lastUpdateCheckMs: Long
+        get() = sp.getLong(K_LAST_UPDATE_CHECK, 0L)
+        set(v) { sp.edit().putLong(K_LAST_UPDATE_CHECK, v).apply() }
 
     private fun buttonKey(input: ButtonInput): String = when (input) {
         ButtonInput.Single -> K_BTN_SINGLE
@@ -257,6 +266,8 @@ class Prefs(context: Context) {
         private const val K_HIGH_CONTRAST = "high_contrast"
         private const val K_LARGE_BUTTONS = "large_buttons"
         private const val K_ONBOARDED = "onboarded"
+        private const val K_AUTO_UPDATE = "auto_update_check"
+        private const val K_LAST_UPDATE_CHECK = "last_update_check"
         private const val K_BTN_SINGLE = "btn_single"
         const val K_BTN_DOUBLE = "btn_double"
         const val K_BTN_TRIPLE = "btn_triple"

@@ -14,6 +14,9 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.lifecycle.lifecycleScope
+import androidx.compose.runtime.collectAsState
+import com.intercom.app.update.InstallAction
+import com.intercom.app.update.UpdatePolicy
 import kotlinx.coroutines.launch
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -119,7 +122,18 @@ class MainActivity : ComponentActivity() {
         // First run opens the walkthrough; every later launch goes straight to the start screen.
         if (savedInstanceState == null && !prefs.onboardingDone) screen = Screen.Onboarding
 
+        // Opt-in only: the daily check runs when the rider switched it on, and only looks.
+        val updates = (application as RiderIntercomApp).updates
+        if (savedInstanceState == null &&
+            UpdatePolicy.shouldAutoCheck(
+                prefs.current.autoUpdateCheck, prefs.lastUpdateCheckMs, System.currentTimeMillis(), updates.isCallActive(),
+            )
+        ) {
+            updates.check()
+        }
+
         setContent {
+            val updateState by updates.state.collectAsState()
             RiderIntercomTheme {
                 AppRoot(
                     prefs = prefs,
@@ -163,6 +177,15 @@ class MainActivity : ComponentActivity() {
                     onLanguage = ::changeLanguage,
                     onShareLog = ::shareLog,
                     shareLogBusy = sharingLog,
+                    updateState = updateState,
+                    appVersion = updates.versionName(),
+                    updateActions = UpdateActions(
+                        check = updates::check,
+                        download = updates::download,
+                        cancel = updates::cancel,
+                        install = ::installUpdate,
+                        close = updates::dismiss,
+                    ),
                 )
             }
         }
@@ -185,6 +208,20 @@ class MainActivity : ComponentActivity() {
         prefs.update { it.copy(language = language) }
         (application as RiderIntercomApp).createChannels()
         recreate()
+    }
+
+    /** Hands the verified APK to the system installer; Android re-checks the signing key itself. */
+    private fun installUpdate() {
+        val updates = (application as RiderIntercomApp).updates
+        when (val action = updates.installAction()) {
+            null -> Unit
+            is InstallAction.NeedsPermission -> {
+                Toast.makeText(this, R.string.upd_install_permission, Toast.LENGTH_LONG).show()
+                runCatching { startActivity(action.intent) }
+            }
+            is InstallAction.Install -> runCatching { startActivity(action.intent) }
+                .onFailure { Toast.makeText(this, R.string.upd_err_unreadable, Toast.LENGTH_LONG).show() }
+        }
     }
 
     /** Builds the redacted log off the main thread, then offers it to whatever app the rider picks. */

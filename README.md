@@ -85,6 +85,17 @@ Settings > Share log saves the recent app log with positions, ride codes, names 
 Bluetooth addresses removed and opens the share sheet; nothing is uploaded. After a call a
 summary shows duration, link quality and radio switches. It is kept in memory only.
 
+### Updates (optional)
+Settings > Updates checks GitHub Releases for a newer version, but only when you tap
+**Check for updates** (or switch on the once-a-day check, which is off by default and only
+looks; it never downloads by itself). A newer version is offered only if it is strictly
+higher by semantic-version rules, so you are never offered a downgrade. Downloading is a
+separate tap: the file is streamed to disk with progress and a Cancel button, its SHA-256 is
+computed as it arrives and compared with the checksum published for that APK, and a
+mismatch, wrong size, wrong package, lower version code or different signing key deletes the
+file and refuses. Installing is a third tap and goes through Android's own installer. Updates
+are refused while a call is running, because installing ends the call.
+
 ## What works
 
 - Direct voice calls over Bluetooth RFCOMM — no internet, no server
@@ -116,7 +127,17 @@ summary shows duration, link quality and radio switches. It is kept in memory on
 - The ride code is stored in its own preferences file, excluded from Android backup and device transfer. It is not hardware-keystore protected: a rooted phone can read it.
 - QR scanning uses Google's code scanner from Play services, which draws the camera screen itself, so the app needs no camera permission. That module is downloaded by Play services, not by this app. On a phone without Play services, type the code.
 
+## Privacy and permissions
+
+- No analytics, no accounts, no ads, no tracking. Voice and positions travel only phone to phone.
+- **The only network use is the optional update check** (Settings > Updates): HTTPS to `api.github.com` and GitHub's download hosts, nothing else, never at launch unless you switched on the daily check. A GitHub request carries what any web request does, such as your IP address; the app sends no identifier and no settings. Redirects to any other host are refused.
+- Microphone: your voice. Bluetooth and nearby devices: finding and connecting to your buddy. Notifications: the ongoing-call notification. Location (only if you switch on distance): the GPS fix shared with riders in your call. Wi-Fi state and nearby Wi-Fi devices: Wi-Fi Direct.
+- **Install unknown apps** (`REQUEST_INSTALL_PACKAGES`): used only to hand a downloaded and verified update to the system installer. Android asks you to allow it for this app the first time; you can switch it off again afterwards.
+
 ## Known issues
+
+- **The update checksum is not a signature.** It is published next to the APK on the same release, so it catches a damaged or truncated download, but anyone who could edit the release could change both files. The protection against a swapped APK is Android's own rule that an update must be signed with the same key as the installed app; the app also checks this before opening the installer so you get a clear message. If the signing key ever changes (key rotation), the in-app update will refuse and a manual reinstall is needed. None of this has been run against a real release on a phone; see the Phase 9 section of `docs/DEVICE_TEST_CHECKLIST.md`. The installed build has `versionCode` 1, so the first release must use a higher one (see `RELEASING.md`).
+
 
 - **Rider distance has not been run on real phones.** The maths, send-rate policy, staleness, smoothing and message handling are unit-tested, including positions relayed across a simulated group. The GPS itself, the permission prompts on each Android version, the location foreground-service type, battery cost and whether the numbers match the road are in `docs/DEVICE_TEST_CHECKLIST.md`. Known limits: the ahead/behind and arrow need you to be moving (a stationary GPS has no heading); GPS accuracy is tens of metres in cities and under trees, and a distance under about 20 m is shown as `< 20 m` on purpose; a rider who shares sees distances only if they share too.
 

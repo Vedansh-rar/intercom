@@ -71,6 +71,10 @@ fun SettingsScreen(
     onShareLog: () -> Unit = {},
     shareLogBusy: Boolean = false,
     onRunSetup: () -> Unit = {},
+    updateState: com.intercom.app.update.UpdateState = com.intercom.app.update.UpdateState.Idle,
+    appVersion: String = "",
+    callActive: Boolean = false,
+    updateActions: UpdateActions = UpdateActions(),
 ) {
     Column(
         Modifier.fillMaxSize().background(Brand.Background)
@@ -531,6 +535,17 @@ fun SettingsScreen(
             SecondaryButton(stringResource(R.string.set_run_setup), onRunSetup)
         }
 
+        SectionCard(title = stringResource(R.string.upd_title)) {
+            UpdateSection(
+                state = updateState,
+                appVersion = appVersion,
+                autoCheck = settings.autoUpdateCheck,
+                callActive = callActive,
+                actions = updateActions,
+                onAutoCheck = { v -> onChange { it.copy(autoUpdateCheck = v) } },
+            )
+        }
+
         SectionCard(title = stringResource(R.string.set_diagnostics)) {
             Text(
                 stringResource(R.string.set_diagnostics_sub),
@@ -600,7 +615,7 @@ private fun ChoiceRow(
 }
 
 @Composable
-private fun ToggleRow(
+internal fun ToggleRow(
     checked: Boolean,
     title: String,
     subtitle: String,

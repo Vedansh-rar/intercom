@@ -59,6 +59,9 @@ fun AppRoot(
     onLanguage: (AppLanguage) -> Unit = {},
     onShareLog: () -> Unit = {},
     shareLogBusy: Boolean = false,
+    updateState: com.intercom.app.update.UpdateState = com.intercom.app.update.UpdateState.Idle,
+    appVersion: String = "",
+    updateActions: UpdateActions = UpdateActions(),
 ) {
     val settings by prefs.settings.collectAsState()
     val ctx = LocalContext.current
@@ -162,6 +165,14 @@ fun AppRoot(
                     onShareLog = onShareLog,
                     shareLogBusy = shareLogBusy,
                     onRunSetup = { onScreen(Screen.Onboarding) },
+                    updateState = updateState,
+                    appVersion = appVersion,
+                    callActive = status.phase !in listOf(
+                        com.intercom.app.call.CallPhase.Idle,
+                        com.intercom.app.call.CallPhase.Ended,
+                        com.intercom.app.call.CallPhase.Error,
+                    ),
+                    updateActions = updateActions,
                 )
 
                 Screen.Oem -> OemScreen(
